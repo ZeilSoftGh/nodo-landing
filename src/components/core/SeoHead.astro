@@ -1,0 +1,56 @@
+---
+import { SITE_METADATA } from '@lib/seo/metadata';
+
+interface Props {
+  title: string;
+  description: string;
+  canonical?: URL | string;
+  image?: string;
+  noindex?: boolean;
+  jsonLd?: Record<string, unknown> | Record<string, unknown>[];
+}
+
+const {
+  title,
+  description,
+  canonical = new URL(Astro.url.pathname, Astro.site),
+  image,
+  noindex = false,
+  jsonLd,
+} = Astro.props;
+
+const canonicalUrl = canonical instanceof URL ? canonical : new URL(canonical, Astro.site);
+const robotsContent = noindex ? 'noindex, nofollow' : 'index, follow';
+const ogImage = image ?? SITE_METADATA.defaultOgImage;
+const fullTitle = `${title} | ${SITE_METADATA.siteName}`;
+const jsonLdBlocks = jsonLd === undefined ? [] : Array.isArray(jsonLd) ? jsonLd : [jsonLd];
+---
+
+<!-- PLACEHOLDER metadata: commercial values will be defined later (§14). -->
+<title>{fullTitle}</title>
+<meta name="description" content={description} />
+<link rel="canonical" href={canonicalUrl.href} />
+<meta name="robots" content={robotsContent} />
+
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content={SITE_METADATA.siteName} />
+<meta property="og:locale" content={SITE_METADATA.ogLocale} />
+<meta property="og:title" content={fullTitle} />
+<meta property="og:description" content={description} />
+<meta property="og:url" content={canonicalUrl.href} />
+<meta property="og:image" content={new URL(ogImage, Astro.site).href} />
+
+<meta name="twitter:card" content={SITE_METADATA.twitterCard} />
+<meta name="twitter:title" content={fullTitle} />
+<meta name="twitter:description" content={description} />
+<meta name="twitter:image" content={new URL(ogImage, Astro.site).href} />
+
+<!-- PLACEHOLDER theme color: replaced by the final design token later. -->
+<meta name="theme-color" content={SITE_METADATA.themeColor} />
+
+{
+  jsonLdBlocks.map((block) => (
+    // JSON-LD generated internally is the only legitimate use of set:html (§51).
+    <script is:inline type="application/ld+json" set:html={JSON.stringify(block)} />
+  ))
+}

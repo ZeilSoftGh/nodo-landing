@@ -1,0 +1,13 @@
+---
+// Simple prerendered 404. No final visual design yet (§38).
+export const prerender = true;
+
+import BaseLayout from '@layouts/BaseLayout.astro';
+---
+
+<BaseLayout title="Página no encontrada" description="Página no encontrada." noindex={true}>
+  <div class="p-4">
+    <h1>404</h1>
+    <p>Página no encontrada.</p>
+  </div>
+</BaseLayout>

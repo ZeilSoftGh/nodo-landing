@@ -1,0 +1,36 @@
+---
+import SeoHead from '@components/core/SeoHead.astro';
+import SkipLink from '@components/core/SkipLink.astro';
+import '@styles/global.css';
+
+interface Props {
+  title: string;
+  description: string;
+  canonical?: URL | string;
+  image?: string;
+  noindex?: boolean;
+}
+
+const { title, description, canonical, image, noindex = false } = Astro.props;
+---
+
+<!doctype html>
+<html lang="es-AR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <SeoHead
+      title={title}
+      description={description}
+      canonical={canonical}
+      image={image}
+      noindex={noindex}
+    />
+  </head>
+  <body>
+    <SkipLink />
+    <main id="main-content">
+      <slot />
+    </main>
+  </body>
+</html>

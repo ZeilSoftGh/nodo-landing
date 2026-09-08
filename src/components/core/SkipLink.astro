@@ -1,0 +1,24 @@
+---
+// Skip link: hidden until keyboard focus, pointing to #main-content in BaseLayout (§39).
+---
+
+<a class="skip-link" href="#main-content">Saltar al contenido principal</a>
+
+<style>
+  .skip-link {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform: translateY(-100%);
+    z-index: 100;
+
+    /* Deliberately minimal styling: no final design tokens yet (§44). */
+    padding: 0.5rem 1rem;
+    background: #000000;
+    color: #ffffff;
+  }
+
+  .skip-link:focus-visible {
+    transform: translateY(0);
+  }
+</style>

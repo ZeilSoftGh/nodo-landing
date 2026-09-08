@@ -1,0 +1,14 @@
+---
+// Home placeholder: exists only to verify build, prerender, SEO, CSS and routing (§18).
+// No islands, no scripts: the page must work without JavaScript (§57).
+export const prerender = true;
+
+import BaseLayout from '@layouts/BaseLayout.astro';
+---
+
+<BaseLayout title="Project Core" description="Astro core initialized.">
+  <div class="p-4">
+    <h1>Project Core</h1>
+    <p>Astro core initialized.</p>
+  </div>
+</BaseLayout>
