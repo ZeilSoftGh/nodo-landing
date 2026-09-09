@@ -1,7 +1,8 @@
 # nodo — Astro core
 
-Technical core of a premium/experiential bar website. Deliberately boring:
-no final content, no final design. Its purpose is to validate the architecture.
+Technical core and Instagram-derived visual foundation for NODO, a
+premium/experiential bar website. The current home is a static style specimen,
+not the final production experience.
 
 ## Stack
 
@@ -27,6 +28,9 @@ no final content, no final design. Its purpose is to validate the architecture.
   interaction or WebGL. No React in `BaseLayout`, no global client router.
 - **progressive enhancement**: the home works without JavaScript; no global
   imports of GSAP/Lenis/Three/R3F anywhere. Three.js lives only inside islands.
+- **Instagram-derived styling**: `src/styles/tokens.css` and the home specimen
+  use NODO's deep-green, aged-gold, tactile editorial language from Instagram.
+  Fudo is explicitly excluded as a visual reference.
 
 ## Commands
 
@@ -91,5 +95,5 @@ strict --install false --git false`) are obsolete in create-astro v5.2.4;
   non-interactive sessions `astro preview` auto-daemonizes and detaches, which
   hangs Playwright's webServer lifecycle. For interactive use, `pnpm preview`
   works normally.
-- No CMS, analytics, reservations, final design tokens or demo visuals in this
-  stage, per spec.
+- No CMS, analytics, or reservations are integrated yet. The home currently
+  demonstrates the NODO visual standard and remains static-first.
