@@ -16,6 +16,15 @@
 html {
   min-width: 320px;
   background: var(--color-bg);
+}
+
+/* N1: with Lenis active the html element carries the `lenis` class and scroll
+   is driven by Lenis itself, so CSS smooth scrolling must be neutralized
+   (it would fight lenis.scrollTo for `anchors: true`). Without JS, with
+   reduced motion or on pages without Lenis (e.g. /styleguide) the smooth
+   scroll-behavior is preserved. lenis/dist/lenis.css no longer ships the
+   classic `scroll-behavior: auto !important` reset, hence this rule. */
+html:not(.lenis) {
   scroll-behavior: smooth;
 }
 

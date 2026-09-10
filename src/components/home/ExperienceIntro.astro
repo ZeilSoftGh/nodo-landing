@@ -1,0 +1,151 @@
+---
+// Fase 01 · Scene 00 — Experience Intro (§11–§23).
+//
+// The clock (public/reloj.png, 1672×941 — NOT square, R7) is the protagonist
+// object; the H1 is the single real heading of the page (§13). The section is
+// tall (220svh desktop / 180svh mobile, §41) so its sticky viewport can be
+// scrubbed by the IntroTimeline in homeExperience.ts. Initial hidden states
+// are NOT set here: everything is visible by default and gsap.set() applies
+// them only after JS is confirmed (§44/D3).
+---
+
+<section class="experience-intro" data-experience-intro>
+  <div class="experience-intro__viewport">
+    <div class="experience-intro__veil" aria-hidden="true"></div>
+
+    <h1 class="experience-intro__title">
+      <span class="experience-intro__line">Bienvenido a la&nbsp;</span>
+      <span class="experience-intro__line"
+        >experiencia <em class="experience-intro__brand">NODO</em></span
+      >
+    </h1>
+
+    <div class="experience-clock" data-experience-clock aria-hidden="true">
+      <img
+        src="/reloj.png"
+        alt=""
+        width="1672"
+        height="941"
+        decoding="async"
+        fetchpriority="high"
+      />
+    </div>
+
+    <p class="experience-intro__hint">Scroll <span aria-hidden="true">↓</span></p>
+  </div>
+</section>
+
+<style>
+  /* §11 — the section carries the extra scroll distance; the viewport is the
+     sticky, clipped frame that GSAP scrubs against. */
+  .experience-intro {
+    position: relative;
+    z-index: 2; /* paints above the film section during the §23 overlap (N4). */
+    min-height: 220svh;
+  }
+
+  .experience-intro__viewport {
+    position: sticky;
+    top: 0;
+    height: 100svh;
+    display: grid;
+    align-content: center;
+    overflow: hidden;
+    padding-inline: clamp(1.25rem, 6vw, 6rem);
+  }
+
+  /* §12 — darkness dominates; a single soft green haze plus a whisper of gold.
+     This layer fades away during the film reveal so the film shows through
+     from behind (§22 35–65%). */
+  .experience-intro__veil {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 50% 46%, rgb(13 63 55 / 0.28), transparent 46%),
+      radial-gradient(circle at 86% 88%, rgb(201 167 67 / 0.06), transparent 30rem),
+      var(--nodo-night);
+  }
+
+  /* §13/§14 — editorial composition: the two lines frame the clock with a wide
+     gap (the clock lives between them, entering in tension with the type). */
+  .experience-intro__title {
+    position: relative;
+    display: grid;
+    row-gap: clamp(11rem, 32svh, 21rem);
+    width: 100%;
+    font-size: clamp(4rem, 9vw, 10rem);
+    line-height: 0.94;
+    color: var(--nodo-cream);
+  }
+
+  .experience-intro__line {
+    display: block;
+  }
+
+  .experience-intro__line:first-child {
+    justify-self: start;
+  }
+
+  .experience-intro__line:last-child {
+    justify-self: end;
+  }
+
+  /* §15 — gold as jewelry: one word, nothing else. */
+  .experience-intro__brand {
+    color: var(--nodo-gold-soft);
+  }
+
+  /* §16/§17 — independent layer, sized by width with the real asset ratio.
+     Centered with inset+margin auto (no transform, so GSAP owns transform
+     completely for the scrub). max-width keeps the whole clock inside the
+     initial viewport on short screens (§17). */
+  .experience-clock {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: clamp(18rem, 42vw, 42rem);
+    max-width: calc(78svh * (1672 / 941));
+    aspect-ratio: 1672 / 941;
+    height: auto;
+    pointer-events: none;
+  }
+
+  /* §18 — depth: the image itself stays dominant; shadows barely exist. */
+  .experience-clock img {
+    width: 100%;
+    height: auto;
+    filter: drop-shadow(0 2rem 4rem rgb(0 0 0 / 42%)) drop-shadow(0 0 3rem rgb(201 167 67 / 8%));
+  }
+
+  /* §52 — minimal, discrete indicator; the IntroTimeline retires it early. */
+  .experience-intro__hint {
+    position: absolute;
+    right: 0;
+    bottom: clamp(1.5rem, 4svh, 3rem);
+    left: 0;
+    font-family: var(--font-sans);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-align: center;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  /* §41/D9 — mobile: vertical composition, clock more centered, shorter run. */
+  @media (max-width: 800px) {
+    .experience-intro {
+      min-height: 180svh;
+    }
+
+    .experience-intro__title {
+      row-gap: clamp(7rem, 26svh, 12rem);
+      font-size: clamp(3rem, 15vw, 6rem);
+    }
+
+    .experience-clock {
+      width: min(80vw, 28rem);
+      max-width: calc(64svh * (1672 / 941));
+    }
+  }
+</style>
