@@ -31,10 +31,9 @@
 <style>
   /* §29 — three and a half screens of travel for the film scrub. The section
      sits BELOW the intro in paint order so the §23 overlap (N4) can reveal it
-     from behind while the intro veil fades. `overflow: clip` keeps the 1.04
-     reveal scale (§22) inside the section: clip creates no scroll container,
-     so the sticky viewport still tracks the page scroll without horizontal
-     overflow. */
+     from behind while the intro veil fades. `overflow: clip` keeps the layer
+     inside the section: clip creates no scroll container, so the sticky
+     viewport still tracks the page scroll without horizontal overflow. */
   .scroll-film {
     position: relative;
     z-index: 1;
@@ -43,24 +42,21 @@
     overflow: clip;
   }
 
-  /* §27 — sticky, clipped frame; the fallback scene below is what the user
-     sees while the real film does not exist: same night palette as the intro
-     veil so the reveal (§22 35–65%) reads as one continuous space, not a
-     section change. */
+  /* §27 + §13.1 v6 — sticky, clipped frame; the fallback scene below is what
+     the user sees while the real film does not exist: the EXACT veil stack
+     from ExperienceIntro.astro (same two radials + flat --nodo-night, no
+     mid-band). The viewport stays at constant opacity 1 behind the veil, so
+     the 35–65 % reveal never shows a seam (contract C1). If the veil changes,
+     this copies it. */
   .scroll-film__viewport {
     position: sticky;
     top: 0;
     height: 100svh;
     overflow: hidden;
     background:
-      radial-gradient(circle at 50% 42%, rgb(13 63 55 / 0.44), transparent 48%),
-      radial-gradient(circle at 88% 86%, rgb(201 167 67 / 0.08), transparent 28rem),
-      linear-gradient(
-        180deg,
-        var(--nodo-night) 0%,
-        var(--color-surface) 56%,
-        var(--nodo-night) 100%
-      );
+      radial-gradient(circle at 50% 46%, rgb(13 63 55 / 0.28), transparent 46%),
+      radial-gradient(circle at 86% 88%, rgb(201 167 67 / 0.06), transparent 30rem),
+      var(--nodo-night);
   }
 
   /* §32 — fullscreen, never distorted. Empty until the real src lands; the
@@ -73,14 +69,24 @@
     object-fit: cover;
   }
 
-  /* §33 — separate overlay layer: brand green at the top, night at the bottom,
-     transparent in between. Sits above the video, below the global grain. */
+  /* §33 + §13.1 v6 — separate overlay layer: brand green at the top, night at
+     the bottom, transparent in between. It stays at opacity 0 until a real
+     video reports loaded metadata (`data-video-ready`, set by
+     homeExperience.ts), so without material the fallback is exactly the veil
+     stack. Future video: retune the overlay only against real frames
+     (DESIGN_SPEC §13.1/§13.5). */
   .scroll-film__overlay {
     position: absolute;
     inset: 0;
+    opacity: 0;
     background:
       linear-gradient(180deg, rgb(13 63 55 / 0.35) 0%, transparent 30%),
       linear-gradient(0deg, rgb(7 19 17 / 0.6) 0%, transparent 34%);
+  }
+
+  [data-video-ready] .scroll-film__overlay {
+    opacity: 1;
+    transition: opacity 0.4s ease;
   }
 
   /* §29/§41/D9 — mobile: shorter run, same mechanism. */

@@ -1,0 +1,267 @@
+{
+  "countDesktop": 11,
+  "countMobile": 8,
+  "sizeRangeDesktopPx": [
+    8,
+    16
+  ],
+  "sizeScaleMobile": 0.85,
+  "opacityRange": [
+    0.34,
+    0.62
+  ],
+  "mask": "/nodo_logo_vector_flat.svg",
+  "maskNote": "production path; the mock source uses the relative url('nodo_logo_vector_flat.svg')",
+  "halo": "static radial gradient via ::before, no filter",
+  "haloDetail": "content:'';position:absolute;inset:-150%;border-radius:50%;background:radial-gradient(closest-side,rgb(228 199 122/.26),transparent 72%); spark nodes carry no CSS filter (checked: none)",
+  "twinkle": {
+    "indices": [
+      1,
+      5,
+      7
+    ],
+    "animation": "experience-sky-twinkle 8s cubic-bezier(.45,0,.55,1) infinite alternate",
+    "gating": "only under @media (prefers-reduced-motion: no-preference)",
+    "amplitude": "opacity from var(--o) to calc(var(--o) * 0.82)"
+  },
+  "hiddenOnMobile": [
+    3,
+    9,
+    11
+  ],
+  "sizePxMobileDerivation": "sizePxDesktop * sizeScaleMobile, rounded to 2 decimals (computed, not a source literal)",
+  "sparks": [
+    {
+      "index": 1,
+      "leftPct": 82,
+      "topPct": 14,
+      "sizePxDesktop": 15,
+      "sizePxMobile": 12.75,
+      "opacity": 0.58,
+      "rotationDeg": 22,
+      "tone": "gold-soft",
+      "twinkle": true,
+      "twinkleDelaySec": -2.4,
+      "visibleMobile": true,
+      "mobileOverride": null
+    },
+    {
+      "index": 2,
+      "leftPct": 91,
+      "topPct": 26,
+      "sizePxDesktop": 10,
+      "sizePxMobile": 8.5,
+      "opacity": 0.42,
+      "rotationDeg": -9,
+      "tone": "gold",
+      "twinkle": false,
+      "twinkleDelaySec": null,
+      "visibleMobile": true,
+      "mobileOverride": null
+    },
+    {
+      "index": 3,
+      "leftPct": 68.5,
+      "topPct": 22.5,
+      "sizePxDesktop": 9,
+      "sizePxMobile": 7.65,
+      "opacity": 0.38,
+      "rotationDeg": 14,
+      "tone": "gold",
+      "twinkle": false,
+      "twinkleDelaySec": null,
+      "visibleMobile": false,
+      "mobileOverride": null
+    },
+    {
+      "index": 4,
+      "leftPct": 7.5,
+      "topPct": 42,
+      "sizePxDesktop": 11,
+      "sizePxMobile": 9.35,
+      "opacity": 0.46,
+      "rotationDeg": -16,
+      "tone": "gold",
+      "twinkle": false,
+      "twinkleDelaySec": null,
+      "visibleMobile": true,
+      "mobileOverride": null
+    },
+    {
+      "index": 5,
+      "leftPct": 10.5,
+      "topPct": 58,
+      "sizePxDesktop": 13,
+      "sizePxMobile": 11.05,
+      "opacity": 0.5,
+      "rotationDeg": 8,
+      "tone": "gold",
+      "twinkle": true,
+      "twinkleDelaySec": null,
+      "visibleMobile": true,
+      "mobileOverride": null
+    },
+    {
+      "index": 6,
+      "leftPct": 21,
+      "topPct": 61,
+      "sizePxDesktop": 9,
+      "sizePxMobile": 7.65,
+      "opacity": 0.38,
+      "rotationDeg": -12,
+      "tone": "gold",
+      "twinkle": false,
+      "twinkleDelaySec": null,
+      "visibleMobile": true,
+      "mobileOverride": null
+    },
+    {
+      "index": 7,
+      "leftPct": 86,
+      "topPct": 46,
+      "sizePxDesktop": 16,
+      "sizePxMobile": 13.6,
+      "opacity": 0.62,
+      "rotationDeg": 18,
+      "tone": "gold-soft",
+      "twinkle": true,
+      "twinkleDelaySec": -5.1,
+      "visibleMobile": true,
+      "mobileOverride": {
+        "leftPct": 88,
+        "topPct": 33,
+        "source": "@media (max-width:800px) .experience-sky__spark--7"
+      }
+    },
+    {
+      "index": 8,
+      "leftPct": 78,
+      "topPct": 62,
+      "sizePxDesktop": 10,
+      "sizePxMobile": 8.5,
+      "opacity": 0.44,
+      "rotationDeg": -20,
+      "tone": "gold",
+      "twinkle": false,
+      "twinkleDelaySec": null,
+      "visibleMobile": true,
+      "mobileOverride": null
+    },
+    {
+      "index": 9,
+      "leftPct": 93,
+      "topPct": 38,
+      "sizePxDesktop": 9,
+      "sizePxMobile": 7.65,
+      "opacity": 0.38,
+      "rotationDeg": -6,
+      "tone": "gold",
+      "twinkle": false,
+      "twinkleDelaySec": null,
+      "visibleMobile": false,
+      "mobileOverride": null
+    },
+    {
+      "index": 10,
+      "leftPct": 22,
+      "topPct": 15,
+      "sizePxDesktop": 8,
+      "sizePxMobile": 6.8,
+      "opacity": 0.34,
+      "rotationDeg": 12,
+      "tone": "gold",
+      "twinkle": false,
+      "twinkleDelaySec": null,
+      "visibleMobile": true,
+      "mobileOverride": null
+    },
+    {
+      "index": 11,
+      "leftPct": 56,
+      "topPct": 12,
+      "sizePxDesktop": 10,
+      "sizePxMobile": 8.5,
+      "opacity": 0.4,
+      "rotationDeg": -14,
+      "tone": "gold",
+      "twinkle": false,
+      "twinkleDelaySec": null,
+      "visibleMobile": false,
+      "mobileOverride": null
+    }
+  ],
+  "source": {
+    "files": [
+      {
+        "path": "mock/build-mock.mjs",
+        "sha256": "d1cdd3a22117adf86b06d3584450502e9175cc046172d0d6eba65de89d4796c5",
+        "section": "const SPARKS = [...] (array with n/x/y/s/o/r/soft)"
+      },
+      {
+        "path": "mock/stage.html",
+        "sha256": "694af89a48988670f412e6b05fcac685d55fdd9fa81c5eaa0e935bc08b493e83",
+        "section": ".experience-sky__spark--N rules; @media (max-width:800px) block; twinkle @media block; ::before halo; mask-image"
+      },
+      {
+        "path": "DESIGN_SPEC.md",
+        "sha256": "3a233db68f70482e917db969b4ba643613d954c8249f3b2153e78c4808b2ee6f",
+        "section": "§5 Sky composition (desktop/mobile counts, mask, halo, twinkle summary, hide/override/scale)"
+      },
+      {
+        "path": "README.md",
+        "sha256": "63f2965a577c745c8462e20541e6600452691afb687f3db1e639352d1d72a044",
+        "section": "What to review / shots summary"
+      }
+    ],
+    "tempRoot": "C:/Users/Emii/AppData/Local/Temp/opencode/nodo-experience-intro-design",
+    "note": "Values extracted verbatim from mock/build-mock.mjs and cross-checked against mock/stage.html (all 11 indices match on leftPct/topPct/size/opacity/rotation)."
+  },
+  "verification": {
+    "counts": {
+      "desktop": 11,
+      "mobile": 8,
+      "hiddenOnMobile": [
+        3,
+        9,
+        11
+      ],
+      "twinkleIndices": [
+        1,
+        5,
+        7
+      ]
+    },
+    "ranges": {
+      "sizeDesktopPx": [
+        8,
+        16
+      ],
+      "opacity": [
+        0.34,
+        0.62
+      ],
+      "mobileSizeScale": 0.85
+    },
+    "crossChecks": [
+      "SPARKS array (build-mock.mjs) vs per-class CSS (stage.html): 11/11 indices identical",
+      "mobile hidden rule parsed: exactly 3 indices",
+      "mobile override parsed: single index with left/top",
+      "mobile size scale parsed from calc factor",
+      "mask and halo regex-verified; no CSS filter on spark nodes"
+    ],
+    "asserts": {
+      "countDesktop11": true,
+      "countMobile8": true,
+      "twinkle157": true,
+      "sizeRange8to16": true,
+      "opacityRange0_34to0_62": true
+    }
+  },
+  "missing": [
+    {
+      "index": 5,
+      "field": "twinkleDelaySec",
+      "note": "no animation-delay declared for --5 in the source; encoded as null. CSS default would be 0s (not asserted in source)."
+    }
+  ]
+}

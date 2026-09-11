@@ -11,6 +11,10 @@ const site = process.env.SITE_URL ?? 'http://localhost:4321';
 export default defineConfig({
   site,
 
+  server: {
+    allowedHosts: ['14f7-190-97-120-245.ngrok-free.app']
+  },
+
   output: 'server',
 
   adapter: node({

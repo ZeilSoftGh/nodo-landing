@@ -507,6 +507,10 @@ background:
 
 No copiar literalmente si la composición final pide otros valores.
 
+## Capa de cielo decorativa (upgrade v4)
+
+Sobre el velo se agrega `.experience-sky` (atributo `data-experience-sky`), una capa decorativa 100 % DOM/SVG —sin canvas, sin WebGL y sin assets nuevos— con 150 puntos de polvo (75 en mobile) y 11 chispas doradas (8 en mobile) enmascaradas con el logo plano existente (`/nodo_logo_vector_flat.svg`). Es `aria-hidden`, `pointer-events: none` y se desvanece junto con el velo entre el 35 % y el 65 % del scroll del intro. Composición y valores exactos: `docs/design/experience-intro/DESIGN_SPEC.md` §5.
+
 ---
 
 # 13. Texto principal
@@ -653,7 +657,8 @@ Debe sentirse importante.
 Desktop aproximado:
 
 ```css
-width: clamp(18rem, 42vw, 42rem);
+width: clamp(18rem, 40vw, 42rem);
+max-width: calc(40svh * (1672 / 941));
 ```
 
 No usar un tamaño fijo.
@@ -661,12 +666,15 @@ No usar un tamaño fijo.
 Mobile:
 
 ```css
-width: min(80vw, 28rem);
+width: min(80vw, 24rem);
+max-width: calc(32svh * (1672 / 941));
 ```
 
 Debe permanecer completo dentro del viewport en el estado inicial.
 
 No cortar partes críticas del reloj.
+
+Estos valores (aprobados en el upgrade v4) son parte del contrato de no-oclusión tipografía↔reloj: `row-gap` desktop `clamp(12rem, 52svh, 34rem)` y mobile `clamp(7.5rem, 34svh, 16rem)`. No se recalibran sin volver a medir el contrato (`docs/design/experience-intro/DESIGN_SPEC.md` §3/§7).
 
 ---
 
@@ -808,19 +816,14 @@ La escena debe “resistir” un poco al scroll.
 
 ## 15% → 40%
 
-El texto comienza a desaparecer.
-
-Animar:
+El título se parte lateralmente (salida aprobada en el upgrade v4):
 
 ```text
-opacity: 1 → 0
-translateY: 0 → -40px
-letter-spacing: normal → ligeramente abierto
+línea 1: xPercent 0 → -120 (hacia la izquierda)
+línea 2: xPercent 0 → +120 (hacia la derecha)
 ```
 
-No hacer que todo desaparezca al mismo tiempo.
-
-Puede haber stagger entre líneas.
+Ambas líneas arrancan juntas en 15 y completan en 40, sin stagger y sin fade: sólo `xPercent`, ni `opacity` ni `translateY` ni `letter-spacing`. El ejemplo anterior (fade + uplift + letter-spacing abierto) queda **superseded** por decisión explícita del usuario (2026-09-10): el desplazamiento vertical medido ocluía el reloj y la salida lateral conserva la no-oclusión (`docs/design/experience-intro/DESIGN_SPEC.md` §2/§12). El `overflow: hidden` del viewport sticky recorta el desplazamiento.
 
 ---
 
@@ -861,19 +864,9 @@ Debe sentirse como si detrás del reloj existiera otra habitación.
 
 ## 55% → 85%
 
-El reloj desaparece.
+El reloj **aterriza en el dock** (v6) en lugar de desaparecer: viaja al centro de `[data-experience-dock]` (desktop 106×300 / mobile 54×150), con `scale 0.72 → 0.32` (desktop) / `0.30` (mobile), `rotation → 0`, sin `opacity` y sin `blur`. Queda **visible y nítido al 100 %**; el dock es además el marco del futuro drink (spec-only).
 
-Ejemplo conceptual:
-
-```text
-scale: 0.72 → 0.28
-opacity: 1 → 0
-filter blur: 0 → 2px
-```
-
-No usar un blur grande.
-
-La desaparición debe ser elegante.
+El ejemplo anterior (`scale: 0.72 → 0.28`, `opacity: 1 → 0`, `filter blur: 0 → 2px`) queda **superseded** por decisión explícita de v6: las ventanas de §22 se preservan (20–55 transform, 55–85 aterrizaje) y sólo cambia el contenido de 55–85. Referencia: `docs/design/experience-intro/DESIGN_SPEC.md` §13.2/§13.5.
 
 ---
 
@@ -882,6 +875,10 @@ La desaparición debe ser elegante.
 Sólo queda la primera imagen/frame de la escena de video.
 
 No debe haber salto visual cuando termina la primera sección y comienza la segunda.
+
+### Nota de upgrade (cielo + tilt + v5/v6)
+
+El intro suma un tilt sutil según el input del dispositivo —parallax de puntero en desktop (>800 px, pointer fino) y giroscopio en mobile (≤800 px, pointer coarse)— con **pipeline automático de permiso (sin controles) y label de denegación en iOS** (“Viví la experiencia completa” + hint de Ajustes › Safari), una deriva del cielo dentro del mismo timeline de scroll (`introTl`) y, desde v6, la **continuidad intro→film** (el fallback del film copia el stack del velo y el overlay queda oculto hasta que exista video real con metadatos) y el **aterrizaje del reloj en el dock** (55–85 %; reemplaza el dissolve). No se agregan timelines con ScrollTrigger (siguen siendo 2) ni propiedades animadas fuera de `transform`/`opacity`. Detalle y valores: `docs/design/experience-intro/DESIGN_SPEC.md` y `docs/superpowers/specs/2026-09-10-experience-intro-sky-tilt-design.md`.
 
 ---
 
@@ -1817,12 +1814,14 @@ BIENVENIDO...
 ## Final intro
 
 ```text
-[reloj desaparece]
+[reloj aterriza en el dock y permanece visible]
 
 ████████████████████████████████████████
 ██████████ PRIMER FRAME VIDEO ██████████
 ████████████████████████████████████████
 ```
+
+> v6: “el reloj desaparece” queda **superseded** — al final del intro el reloj aterriza en el dock (55–85 %) y permanece visible y nítido al 100 %; el estado final es reloj + primer frame del video. Referencia: `docs/design/experience-intro/DESIGN_SPEC.md` §13.2/§13.5.
 
 ---
 
@@ -1926,10 +1925,12 @@ La implementación se considera correcta cuando:
 
 ### Transición
 
-- el video aparece antes de que desaparezca completamente el reloj;
+- el video aparece mientras el reloj viaja al dock (el reloj no desaparece);
 - no existe un corte a negro;
 - no existe un cambio de sección evidente;
 - se siente una misma escena evolucionando.
+
+> Continuidad v6: “no existe un cambio de sección evidente” se cumple por **alineación exacta de fondos** — el fallback del film copia el stack del velo y el overlay permanece oculto hasta que exista video real con metadatos (delta de píxel muestreado ≤ 2 por canal). El reloj no desaparece: aterriza en el dock y permanece visible al 100 % (`docs/design/experience-intro/DESIGN_SPEC.md` §13.1/§13.2).
 
 ### Film
 
