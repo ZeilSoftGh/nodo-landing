@@ -1,14 +1,30 @@
 ---
-// Home placeholder: exists only to verify build, prerender, SEO, CSS and routing (§18).
-// No islands, no scripts: the page must work without JavaScript (§57).
+// Fase 01 · Home compositor (§10/§48).
+//
+// Pure composition: layout only — all motion orchestration lives in
+// lib/motion/homeExperience.ts and is mounted by the script below. No
+// traditional header in this phase (§50). Prerendered (§48); the title
+// renders through SeoHead as "NODO — Cóctel Bar | NODO" (accepted tradeoff,
+// N3 — core untouched).
 export const prerender = true;
 
 import BaseLayout from '@layouts/BaseLayout.astro';
+import ExperienceIntro from '@components/home/ExperienceIntro.astro';
+import ScrollFilm from '@components/home/ScrollFilm.astro';
 ---
 
-<BaseLayout title="Project Core" description="Astro core initialized.">
-  <div class="p-4">
-    <h1>Project Core</h1>
-    <p>Astro core initialized.</p>
-  </div>
+<BaseLayout title="NODO — Cóctel Bar" description="Bienvenido a la experiencia NODO.">
+  <ExperienceIntro />
+  <ScrollFilm />
 </BaseLayout>
+
+<script>
+  import { initHomeExperience } from '@lib/motion/homeExperience';
+
+  // Astro default script: bundled, hoisted, deduped — runs after the DOM is
+  // parsed, so the data-attribute queries inside init are safe (R3). Cleanup
+  // is registered for a future View Transitions router; without ClientRouter
+  // the event never fires and cleanup runs at page load level (§38/R3).
+  const cleanup = initHomeExperience();
+  document.addEventListener('astro:before-swap', cleanup, { once: true });
+</script>

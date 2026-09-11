@@ -1,0 +1,98 @@
+---
+// Fase 01 · Scene 01 — Scroll Film (§24–§35).
+//
+// Future video route (§25): public/video/nodo-experience.mp4.
+//
+// Until that material exists the element ships WITHOUT src and no runtime
+// fetch is attempted (N2): a request to a missing route would log a console
+// error and break the zero-console contract of smoke.spec.ts. When the file
+// arrives, add src="/video/nodo-experience.mp4" below — the guards in
+// homeExperience.ts (loadedmetadata + error listeners, plus a
+// readyState >= 1 write-guard) are already wired.
+//
+// The fallback background (§27) is what the user sees meanwhile: a NODO night
+// scene connected with the hero, never a placeholder label.
+---
+
+<section class="scroll-film" data-scroll-film>
+  <div class="scroll-film__viewport">
+    <video
+      data-scroll-film-video
+      muted
+      playsinline
+      preload="metadata"
+      aria-hidden="true"
+      disablepictureinpicture></video>
+
+    <div class="scroll-film__overlay" aria-hidden="true"></div>
+  </div>
+</section>
+
+<style>
+  /* §29 — three and a half screens of travel for the film scrub. The section
+     sits BELOW the intro in paint order so the §23 overlap (N4) can reveal it
+     from behind while the intro veil fades. `overflow: clip` keeps the layer
+     inside the section: clip creates no scroll container, so the sticky
+     viewport still tracks the page scroll without horizontal overflow. */
+  .scroll-film {
+    position: relative;
+    z-index: 1;
+    margin-top: -100svh; /* N4: flow overlap with the intro, no pin (§11). */
+    min-height: 350svh;
+    overflow: clip;
+  }
+
+  /* §27 + §13.1 v6 — sticky, clipped frame; the fallback scene below is what
+     the user sees while the real film does not exist: the EXACT veil stack
+     from ExperienceIntro.astro (same two radials + flat --nodo-night, no
+     mid-band). The viewport stays at constant opacity 1 behind the veil, so
+     the 35–65 % reveal never shows a seam (contract C1). If the veil changes,
+     this copies it. */
+  .scroll-film__viewport {
+    position: sticky;
+    top: 0;
+    height: 100svh;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 50% 46%, rgb(13 63 55 / 0.28), transparent 46%),
+      radial-gradient(circle at 86% 88%, rgb(201 167 67 / 0.06), transparent 30rem),
+      var(--nodo-night);
+  }
+
+  /* §32 — fullscreen, never distorted. Empty until the real src lands; the
+     fallback background stays visible underneath meanwhile (§26). */
+  .scroll-film video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  /* §33 + §13.1 v6 — separate overlay layer: brand green at the top, night at
+     the bottom, transparent in between. It stays at opacity 0 until a real
+     video reports loaded metadata (`data-video-ready`, set by
+     homeExperience.ts), so without material the fallback is exactly the veil
+     stack. Future video: retune the overlay only against real frames
+     (DESIGN_SPEC §13.1/§13.5). */
+  .scroll-film__overlay {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    background:
+      linear-gradient(180deg, rgb(13 63 55 / 0.35) 0%, transparent 30%),
+      linear-gradient(0deg, rgb(7 19 17 / 0.6) 0%, transparent 34%);
+  }
+
+  [data-video-ready] .scroll-film__overlay {
+    opacity: 1;
+    transition: opacity 0.4s ease;
+  }
+
+  /* §29/§41/D9 — mobile: shorter run, same mechanism. */
+  @media (max-width: 800px) {
+    .scroll-film {
+      min-height: 250svh;
+    }
+  }
+</style>

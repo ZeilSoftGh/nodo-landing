@@ -1,8 +1,8 @@
 /**
- * Placeholder site metadata defaults (§14).
+ * Site metadata defaults for the NODO visual foundation.
  *
- * Every value here is a clearly identifiable placeholder. No real commercial
- * data (bar name, tagline, addresses, etc.) belongs in this file yet.
+ * Production social imagery and final commercial copy remain pending, but the
+ * brand name and theme color are now part of the implemented standard.
  */
 
 export interface SiteMetadata {
@@ -16,18 +16,18 @@ export interface SiteMetadata {
   defaultOgImageAlt: string;
   /** Twitter card type. */
   twitterCard: 'summary' | 'summary_large_image';
-  /** Placeholder theme color; replaced by the final design token (§44). */
+  /** Browser theme color aligned with the NODO canvas token. */
   themeColor: string;
   /** Open Graph locale. */
   ogLocale: string;
 }
 
 export const SITE_METADATA: SiteMetadata = {
-  siteName: 'PLACEHOLDER_SITE_NAME',
-  defaultDescription: 'PLACEHOLDER_SITE_DESCRIPTION',
+  siteName: 'NODO',
+  defaultDescription: 'NODO: barra, mesa, música y encuentro en San Miguel del Monte.',
   defaultOgImage: '/og-image-placeholder.png', // asset intentionally not shipped yet
-  defaultOgImageAlt: 'PLACEHOLDER_OG_IMAGE_ALT',
+  defaultOgImageAlt: 'NODO — Cóctel Bar',
   twitterCard: 'summary_large_image',
-  themeColor: '#000000', // neutral placeholder, not a design token
+  themeColor: '#071311',
   ogLocale: 'es_AR',
 };

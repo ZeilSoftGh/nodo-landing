@@ -43,6 +43,20 @@ async function ensureScrollTriggerRegistered(): Promise<void> {
 }
 
 /**
+ * Resolves the ScrollTrigger plugin class after registering it on the shared
+ * gsap singleton. Kept lazy (§36): the plugin is only imported and registered
+ * when a scroll-driven animation actually needs it, so pages without scroll
+ * animation never pay for it. Reuses the loader above, so registration happens
+ * exactly once no matter how many callers await this (§61: one place registers
+ * plugins, not five).
+ */
+export async function getScrollTrigger() {
+  await ensureScrollTriggerRegistered();
+  const { ScrollTrigger } = await import('gsap/ScrollTrigger');
+  return ScrollTrigger;
+}
+
+/**
  * Creates a placeholder scroll-driven entrance animation and returns a cleanup
  * function that kills the tween and its ScrollTrigger instance.
  *

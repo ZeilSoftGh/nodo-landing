@@ -11,6 +11,10 @@ const site = process.env.SITE_URL ?? 'http://localhost:4321';
 export default defineConfig({
   site,
 
+  server: {
+    allowedHosts: ['14f7-190-97-120-245.ngrok-free.app']
+  },
+
   output: 'server',
 
   adapter: node({
@@ -20,8 +24,11 @@ export default defineConfig({
   integrations: [
     react(),
     sitemap({
-      // Exclude technical routes from the sitemap (§17).
-      filter: (page) => !new URL(page).pathname.startsWith('/api'),
+      // Exclude technical routes from the sitemap (§17), plus /styleguide (N5):
+      // the internal specimen is noindexed, so it must not be listed either.
+      filter: (page) =>
+        !new URL(page).pathname.startsWith('/api') &&
+        !new URL(page).pathname.startsWith('/styleguide'),
     }),
   ],
 

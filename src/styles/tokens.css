@@ -1,0 +1,80 @@
+/*
+ * NODO brand tokens.
+ *
+ * These values are derived from the Instagram profile and its public visual
+ * language: deep green, aged gold, nocturnal photography and a separate neon
+ * event mode. They intentionally do not inherit colors from the Fudo menu.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* NODO primitives */
+  --nodo-night: #071311;
+  --nodo-ink: #0a0d0c;
+  --nodo-deep: #0d3f37;
+  --nodo-teal: #056454;
+  --nodo-teal-bright: #0b806d;
+  --nodo-gold: #c9a743;
+  --nodo-gold-soft: #e4c77a;
+  --nodo-cream: #efe8d0;
+  --nodo-stone: #a9aa98;
+  --nodo-copper: #d47727;
+  --nodo-vermouth: #a52d25;
+
+  /* NODOFESTA event mode */
+  --festa-magenta: #d04bd1;
+  --festa-violet: #7a5be7;
+  --festa-blue: #3d70f0;
+  --festa-cyan: #71d4db;
+
+  /* Semantic roles */
+  --color-bg: var(--nodo-night);
+  --color-surface: #0b201c;
+  --color-surface-elevated: #103b33;
+  --color-text: var(--nodo-cream);
+  --color-text-muted: var(--nodo-stone);
+  --color-brand: var(--nodo-teal);
+  --color-brand-strong: var(--nodo-teal-bright);
+  --color-accent: var(--nodo-gold);
+  --color-accent-strong: var(--nodo-gold-soft);
+  --color-border: rgb(201 167 67 / 28%);
+  --color-border-strong: rgb(201 167 67 / 62%);
+  --color-focus: var(--nodo-gold-soft);
+  --color-overlay: rgb(7 19 17 / 80%);
+
+  /* Type roles; font files can be self-hosted later without changing markup. */
+  --font-display:
+    'Instrument Serif', 'Bodoni Moda', 'Cormorant Garamond', 'Iowan Old Style', 'Baskerville',
+    'Times New Roman', serif;
+  --font-sans: 'Manrope', 'Avenir Next', 'Helvetica Neue', sans-serif;
+
+  /* Layout and rhythm */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --space-20: 5rem;
+  --space-24: 6rem;
+  --layout-max: 82rem;
+
+  /* Shape and depth */
+  --radius-sm: 0.4rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1.25rem;
+  --radius-pill: 999px;
+  --shadow-deep: 0 2rem 5rem rgb(0 0 0 / 35%);
+  --shadow-gold: 0 0 2.5rem rgb(201 167 67 / 16%);
+
+  /* Motion */
+  --duration-fast: 180ms;
+  --duration-medium: 420ms;
+  --duration-slow: 900ms;
+  --ease-nodo: cubic-bezier(0.22, 1, 0.36, 1);
+}
