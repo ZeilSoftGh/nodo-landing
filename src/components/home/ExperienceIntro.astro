@@ -1,0 +1,478 @@
+---
+import { SKY_DUST, SKY_SPARKS, type SkySpark } from '@lib/experience/sky';
+
+// Fase 01 · Scene 00 — Experience Intro (§11–§23) + upgrade deltas v5/v6
+// (cielo decorativo, tilt con permiso automático, salida lateral del título,
+// dock de aterrizaje del reloj).
+//
+// The clock (public/reloj.png, 1672×941 — NOT square, R7) is the protagonist
+// object; the H1 is the single real heading of the page (§13). The section is
+// tall (220svh desktop / 180svh mobile, §41) so its sticky viewport can be
+// scrubbed by the IntroTimeline in homeExperience.ts. Initial hidden states
+// are NOT set here: everything is visible by default and gsap.set() applies
+// them only after JS is confirmed (§44/D3).
+//
+// The sky is pure DOM/SVG (no canvas, no new assets): 150 dust circles + 11
+// gold sparks masked with the existing flat logo. All geometry comes from
+// src/lib/experience/sky.ts (build-time materialization of the design
+// artifacts); CSP forbids inline style attributes, so every spark value is
+// materialized as a component class instead.
+
+const sparkClass = (spark: SkySpark): string =>
+  [
+    'experience-sky__spark',
+    `experience-sky__spark--${spark.index}`,
+    spark.twinkle ? 'experience-sky__spark--twinkle' : '',
+    spark.visibleMobile ? '' : 'experience-sky__spark--mobile-hidden',
+  ]
+    .filter(Boolean)
+    .join(' ');
+---
+
+<section class="experience-intro" data-experience-intro>
+  <div class="experience-intro__viewport">
+    <div class="experience-intro__veil" aria-hidden="true"></div>
+
+    <div class="experience-sky" data-experience-sky aria-hidden="true">
+      <div class="experience-sky__dust" data-experience-sky-dust>
+        <svg class="experience-sky__dust-field" width="100%" height="100%" focusable="false">
+          {
+            SKY_DUST.map((dot) => (
+              <circle
+                class={`experience-sky__dust-dot experience-sky__dust-dot--${dot.tone}`}
+                cx={`${dot.x}%`}
+                cy={`${dot.y}%`}
+                r={dot.r}
+                opacity={dot.o}
+              />
+            ))
+          }
+        </svg>
+      </div>
+
+      <div class="experience-sky__sparks" data-experience-sky-sparks>
+        {
+          SKY_SPARKS.map((spark) => (
+            <span class={sparkClass(spark)} data-spark-index={spark.index} />
+          ))
+        }
+      </div>
+    </div>
+
+    <h1 class="experience-intro__title">
+      <span class="experience-intro__line">Bienvenido a la&nbsp;</span>
+      <span class="experience-intro__line"
+        >experiencia <em class="experience-intro__brand">NODO</em></span
+      >
+    </h1>
+
+    <div class="experience-clock" data-experience-clock aria-hidden="true">
+      <img
+        src="/reloj.png"
+        alt=""
+        width="1672"
+        height="941"
+        decoding="async"
+        fetchpriority="high"
+      />
+    </div>
+
+    <div class="experience-dock" data-experience-dock aria-hidden="true"></div>
+
+    <p class="experience-intro__hint">Scroll <span aria-hidden="true">↓</span></p>
+
+    <p class="experience-tilt" data-experience-tilt role="status" hidden>
+      <span class="experience-tilt__title">Viví la experiencia completa</span>
+      <span class="experience-tilt__hint">
+        Habilitá el acceso a movimiento y orientación en Ajustes › Safari y volvé a entrar.
+      </span>
+    </p>
+  </div>
+</section>
+
+<style>
+  /* §11 — the section carries the extra scroll distance; the viewport is the
+     sticky, clipped frame that GSAP scrubs against. */
+  .experience-intro {
+    position: relative;
+    z-index: 2; /* paints above the film section during the §23 overlap (N4). */
+    min-height: 220svh;
+  }
+
+  .experience-intro__viewport {
+    position: sticky;
+    top: 0;
+    height: 100svh;
+    display: grid;
+    align-content: center;
+    overflow: hidden;
+    padding-inline: clamp(1.25rem, 6vw, 6rem);
+  }
+
+  /* §12 — darkness dominates; a single soft green haze plus a whisper of gold.
+     This layer fades away during the film reveal so the film shows through
+     from behind (§22 35–65%). */
+  .experience-intro__veil {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 50% 46%, rgb(13 63 55 / 0.28), transparent 46%),
+      radial-gradient(circle at 86% 88%, rgb(201 167 67 / 0.06), transparent 30rem),
+      var(--nodo-night);
+  }
+
+  /* §12 v4 — decorative sky: 150 dust circles + 11 masked gold sparks. It is a
+     pure DOM/SVG layer (no canvas, no new assets), clipped by the sticky
+     viewport and faded out with the veil (35–65%). */
+  .experience-sky {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    -webkit-mask-image: linear-gradient(0deg, transparent 0%, rgb(0 0 0 / 0.5) 26%, #000 58%);
+    mask-image: linear-gradient(0deg, transparent 0%, rgb(0 0 0 / 0.5) 26%, #000 58%);
+  }
+
+  .experience-sky__dust,
+  .experience-sky__sparks {
+    position: absolute;
+    inset: 0;
+  }
+
+  .experience-sky__dust-field {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* r is a real px radius: the SVG has no viewBox, so circles stay round and
+     the dust size is viewport-independent (design §5: r 0.7–2.0 px). */
+  .experience-sky__dust-dot {
+    fill: var(--nodo-cream);
+  }
+
+  .experience-sky__dust-dot--stone {
+    fill: var(--nodo-stone);
+  }
+
+  /* One rule per index with the exact values of sparks.json (D18/§7.2.3).
+     The TS layer only decides flags/order; geometry lives in these classes. */
+  .experience-sky__spark {
+    position: absolute;
+    width: var(--s);
+    height: var(--s);
+    opacity: var(--o);
+    background: var(--nodo-gold);
+    -webkit-mask: url('/nodo_logo_vector_flat.svg') center / contain no-repeat;
+    mask: url('/nodo_logo_vector_flat.svg') center / contain no-repeat;
+    transform: rotate(var(--r));
+  }
+
+  .experience-sky__spark--1 {
+    left: 82%;
+    top: 14%;
+    --s: 15px;
+    --o: 0.58;
+    --r: 22deg;
+    background: var(--nodo-gold-soft);
+  }
+
+  .experience-sky__spark--2 {
+    left: 91%;
+    top: 26%;
+    --s: 10px;
+    --o: 0.42;
+    --r: -9deg;
+  }
+
+  .experience-sky__spark--3 {
+    left: 68.5%;
+    top: 22.5%;
+    --s: 9px;
+    --o: 0.38;
+    --r: 14deg;
+  }
+
+  .experience-sky__spark--4 {
+    left: 7.5%;
+    top: 42%;
+    --s: 11px;
+    --o: 0.46;
+    --r: -16deg;
+  }
+
+  .experience-sky__spark--5 {
+    left: 10.5%;
+    top: 58%;
+    --s: 13px;
+    --o: 0.5;
+    --r: 8deg;
+  }
+
+  .experience-sky__spark--6 {
+    left: 21%;
+    top: 61%;
+    --s: 9px;
+    --o: 0.38;
+    --r: -12deg;
+  }
+
+  .experience-sky__spark--7 {
+    left: 86%;
+    top: 46%;
+    --s: 16px;
+    --o: 0.62;
+    --r: 18deg;
+    background: var(--nodo-gold-soft);
+  }
+
+  .experience-sky__spark--8 {
+    left: 78%;
+    top: 62%;
+    --s: 10px;
+    --o: 0.44;
+    --r: -20deg;
+  }
+
+  .experience-sky__spark--9 {
+    left: 93%;
+    top: 38%;
+    --s: 9px;
+    --o: 0.38;
+    --r: -6deg;
+  }
+
+  .experience-sky__spark--10 {
+    left: 22%;
+    top: 15%;
+    --s: 8px;
+    --o: 0.34;
+    --r: 12deg;
+  }
+
+  .experience-sky__spark--11 {
+    left: 56%;
+    top: 12%;
+    --s: 10px;
+    --o: 0.4;
+    --r: -14deg;
+  }
+
+  /* Static halo, no filter (haloDetail of sparks.json). */
+  .experience-sky__spark::before {
+    content: '';
+    position: absolute;
+    inset: -150%;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, rgb(228 199 122 / 0.26), transparent 72%);
+  }
+
+  /* §13/§14 — editorial composition: the two lines frame the clock with a wide
+     gap (the clock lives between them, entering in tension with the type). */
+  .experience-intro__title {
+    position: relative;
+    display: grid;
+    row-gap: clamp(12rem, 52svh, 34rem);
+    width: 100%;
+    font-size: clamp(4rem, 9vw, 10rem);
+    line-height: 0.94;
+    color: var(--nodo-cream);
+  }
+
+  .experience-intro__line {
+    display: block;
+  }
+
+  .experience-intro__line:first-child {
+    justify-self: start;
+  }
+
+  .experience-intro__line:last-child {
+    justify-self: end;
+  }
+
+  /* §15 — gold as jewelry: one word, nothing else. */
+  .experience-intro__brand {
+    color: var(--nodo-gold-soft);
+  }
+
+  /* §16/§17 — independent layer, sized by width with the real asset ratio.
+     Centered with inset+margin auto (no transform, so GSAP owns transform
+     completely for the scrub). max-width keeps the whole clock inside the
+     initial viewport on short screens (§17); both values are part of the
+     no-occlusion contract (spec §7.5). */
+  .experience-clock {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    width: clamp(18rem, 40vw, 42rem);
+    max-width: calc(40svh * (1672 / 941));
+    aspect-ratio: 1672 / 941;
+    height: auto;
+    pointer-events: none;
+  }
+
+  /* §18 — depth: the image itself stays dominant; shadows barely exist. */
+  .experience-clock img {
+    width: 100%;
+    height: auto;
+    filter: drop-shadow(0 2rem 4rem rgb(0 0 0 / 42%)) drop-shadow(0 0 3rem rgb(201 167 67 / 8%));
+  }
+
+  /* §13.2 v6 — landing dock: the anchor the clock travels to during 55–85 %
+     and the future frame of the drink (asset pending, spec-only). Invisible
+     in production; the dashed rectangle is review-only in the mock. */
+  .experience-dock {
+    --dock-w: 106px;
+    --dock-h: 300px;
+
+    position: absolute;
+    top: 74%;
+    left: 50%;
+    width: var(--dock-w);
+    height: var(--dock-h);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+
+  /* §52 — minimal, discrete indicator; the IntroTimeline retires it early. */
+  .experience-intro__hint {
+    position: absolute;
+    right: 0;
+    bottom: clamp(1.5rem, 4svh, 3rem);
+    left: 0;
+    font-family: var(--font-sans);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-align: center;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  /* §1.1.1 v5 — denied label: the only permission UI, non-interactive. SSR
+     `hidden`: only JS reveals it on a resolved `denied`. The layout lives in
+     `:not([hidden])` because an author `display` would beat the UA
+     `[hidden] { display: none }` (mock gotcha, DESIGN_SPEC §4). */
+  .experience-tilt {
+    position: absolute;
+    right: 0;
+    bottom: calc(clamp(1.5rem, 4svh, 3rem) + 1.75rem);
+    left: 0;
+    pointer-events: none; /* can never block a gesture or the scroll */
+    text-align: center;
+  }
+
+  .experience-tilt[hidden] {
+    display: none;
+  }
+
+  .experience-tilt:not([hidden]) {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .experience-tilt__title {
+    color: var(--nodo-cream);
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .experience-tilt__hint {
+    color: rgb(169 170 152 / 80%); /* stone 80 % */
+    font-size: 0.58rem;
+  }
+
+  /* §41/D9 — mobile: vertical composition, clock more centered, shorter run.
+     The gap and width are the mobile half of the no-occlusion contract. */
+  @media (max-width: 800px) {
+    .experience-intro {
+      min-height: 180svh;
+    }
+
+    /* 150 -> 75 dust circles without touching the DOM: even ones hide. */
+    .experience-sky__dust-field circle:nth-of-type(2n) {
+      display: none;
+    }
+
+    /* Mobile spark table: hidden [3, 9, 11], sizePxMobile per index and the
+       #7 override (left 88 / top 33) — all from sparks.json. */
+    .experience-sky__spark--mobile-hidden {
+      display: none;
+    }
+
+    .experience-sky__spark--1 {
+      --s: 12.75px;
+    }
+
+    .experience-sky__spark--2 {
+      --s: 8.5px;
+    }
+
+    .experience-sky__spark--4 {
+      --s: 9.35px;
+    }
+
+    .experience-sky__spark--5 {
+      --s: 11.05px;
+    }
+
+    .experience-sky__spark--6 {
+      --s: 7.65px;
+    }
+
+    .experience-sky__spark--7 {
+      left: 88%;
+      top: 33%;
+      --s: 13.6px;
+    }
+
+    .experience-sky__spark--8 {
+      --s: 8.5px;
+    }
+
+    .experience-sky__spark--10 {
+      --s: 6.8px;
+    }
+
+    .experience-intro__title {
+      row-gap: clamp(7.5rem, 34svh, 16rem);
+      font-size: clamp(3rem, 15vw, 6rem);
+    }
+
+    .experience-clock {
+      width: min(80vw, 24rem);
+      max-width: calc(32svh * (1672 / 941));
+    }
+
+    .experience-dock {
+      --dock-w: 54px;
+      --dock-h: 150px;
+    }
+  }
+
+  /* Twinkle is the only sky animation and runs only without reduced motion.
+     #1 and #7 carry explicit delays; #5 has twinkleDelaySec: null in the
+     artifact, so no `animation-delay` is declared (CSS default 0 s). */
+  @media (prefers-reduced-motion: no-preference) {
+    .experience-sky__spark--twinkle {
+      animation: experience-sky-twinkle 8s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+    }
+
+    .experience-sky__spark--1 {
+      animation-delay: -2.4s;
+    }
+
+    .experience-sky__spark--7 {
+      animation-delay: -5.1s;
+    }
+  }
+
+  @keyframes experience-sky-twinkle {
+    to {
+      opacity: calc(var(--o) * 0.82);
+    }
+  }
+</style>
