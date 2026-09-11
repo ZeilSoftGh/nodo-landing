@@ -7,3 +7,8 @@ test-results
 # Never reformat planning/spec docs (plan §9 non-goals: no tocar docs/ai/** ni el doc spec).
 docs
 Bootstrap técnico — Core Astro.md
+# Sky design artifacts: byte-identical copies of docs/design/experience-intro/*
+# (sky/tilt spec §7.2.2/§7.2.3, acceptance criterion 23). Formatting them would
+# break the hash check; the source of truth is the design artifact.
+src/lib/experience/sky-dust.json
+src/lib/experience/sky-sparks.json
