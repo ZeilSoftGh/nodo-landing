@@ -2,24 +2,35 @@ import { defineConfig } from 'astro/config';
 import node from '@astrojs/node';
 import react from '@astrojs/react';
 import sitemap from '@astrojs/sitemap';
+import vercel from '@astrojs/vercel';
 import tailwindcss from '@tailwindcss/vite';
 
 // Astro does NOT load .env files inside astro.config.
 // In production, SITE_URL is injected as a real process environment variable.
 const site = process.env.SITE_URL ?? 'http://localhost:4321';
 
+// Vercel sets VERCEL=1 for every build (system env vars are on by default for
+// new projects). On Vercel the official adapter is required so `astro build`
+// emits the Build Output API; without it the deployment has no routes and the
+// platform answers 404. Locally we keep the Node standalone adapter so
+// `pnpm preview` and the Playwright webServer (`node ./dist/server/entry.mjs`,
+// D13/§36) keep working.
+const isVercelBuild = Boolean(process.env.VERCEL);
+
 export default defineConfig({
   site,
 
   server: {
-    allowedHosts: ['14f7-190-97-120-245.ngrok-free.app']
+    allowedHosts: ['14f7-190-97-120-245.ngrok-free.app'],
   },
 
   output: 'server',
 
-  adapter: node({
-    mode: 'standalone',
-  }),
+  adapter: isVercelBuild
+    ? vercel()
+    : node({
+        mode: 'standalone',
+      }),
 
   integrations: [
     react(),
