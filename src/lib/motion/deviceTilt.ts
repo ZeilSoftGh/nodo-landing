@@ -4,15 +4,24 @@ import { prefersReducedMotion } from './gsap';
 
 /**
  * Mobile device-tilt parallax + automatic permission pipeline (Fase 01 upgrade
- * v5 — spec §7.3.2/§7.4, DESIGN_SPEC §1.1/§1.1.1).
+ * v7 — spec §7.3.2/§7.4, DESIGN_SPEC §1.1/§1.1.2).
  *
- * There is no interactive control: on init the module calls
- * `requestPermission()` once with no interaction; non-final results
- * (`'prompt'`, `'default'`, `undefined`, unknown strings, rejections) are
- * never treated as a denial (F1) and arm a one-shot passive retry on the
- * first of pointerdown/touchstart/wheel/scroll/keydown. Only a resolved
- * `'denied'` reveals the non-interactive label. The sensor listener attaches
- * only after `arm()` (entry complete) AND a grant (or Android `auto`).
+ * v7 policy (RC-1/RC-2):
+ * - The retry only listens on activation-qualifying interactions: `touchend`,
+ *   `pointerup`, `click`, `mousedown`, `keydown`, plus `pointerdown` when
+ *   `pointerType === 'mouse'`. `touchstart`/`wheel`/`scroll` never consume an
+ *   attempt (they are not activation-triggering).
+ * - `attempts` counts every `requestPermission()` call (the load attempt
+ *   included) with a cap of 5 per page load. The pipeline terminates only on a
+ *   resolved `'denied'` (label), `unsupported`, reduced motion or the cap;
+ *   non-final results are never terminal and never show UI.
+ * - After the first non-final result the single `deviceorientation` listener
+ *   is attached optimistically (no UI): iOS stays inert pre-grant; Chromium
+ *   revives the parallax when the platform actually delivers events. A later
+ *   `'denied'` tears it down, zeroes the offsets and shows the label; a later
+ *   `'granted'` keeps the same listener and starts the baseline if missing.
+ * - Gate: `(pointer: coarse)` AND `Math.min(innerWidth, innerHeight) <= 800`
+ *   (landscape phones in; large tablets out).
  *
  * F2/D20: `setReleased(true/false)` is invoked by the intro timeline's
  * `onUpdate` on the 0.003 crossing — not by input events.
@@ -40,7 +49,25 @@ export interface DeviceTiltHandle {
   destroy(): void;
 }
 
-const GESTURE_EVENTS = ['pointerdown', 'touchstart', 'wheel', 'scroll', 'keydown'] as const;
+/** Activation-qualifying event types for the v7 retry (RC-1). */
+const ACTIVATION_EVENTS = ['touchend', 'pointerup', 'click', 'mousedown', 'keydown'] as const;
+
+/**
+ * v7 (RC-1) — pure predicate behind the interaction retry (T5.7): only
+ * activation-qualifying interactions may consume a permission attempt;
+ * `pointerdown` qualifies for a mouse pointer only. Exported for the
+ * Node-side matrix and the engine tests.
+ */
+export function isActivationQualifyingEvent(type: string, pointerType?: string): boolean {
+  if (type === 'pointerdown') return pointerType === 'mouse';
+  return (ACTIVATION_EVENTS as readonly string[]).includes(type);
+}
+
+/** Every event the retry arms; `pointerdown` is filtered by the predicate. */
+const RETRY_EVENTS = [...ACTIVATION_EVENTS, 'pointerdown'] as const;
+
+/** v7 (lead decision): 5 `requestPermission()` calls max per page load. */
+const PERMISSION_ATTEMPT_CAP = 5;
 
 const BASELINE_SAMPLES = 8;
 const BASELINE_TIMEOUT_MS = 320;
@@ -58,17 +85,23 @@ const DUST_ROTATION_DEG = 0.34;
 
 type TiltState = 'auto' | 'pending' | 'prompt-unknown' | 'requesting' | 'granted' | 'denied';
 
+/** v7 gate (DESIGN_SPEC §1.1.2): short side, so landscape phones qualify. */
+function passesShortSideGate(): boolean {
+  return Math.min(window.innerWidth, window.innerHeight) <= 800;
+}
+
 /**
- * Creates the device-tilt controller for coarse pointers <= 800 px. Returns
- * `null` on desktop, without `DeviceOrientationEvent` or under reduced motion
- * (the caller already bails, this keeps the contract local).
+ * Creates the device-tilt controller for coarse pointers with a short side
+ * <= 800 px. Returns `null` on desktop/large tablets, without
+ * `DeviceOrientationEvent` or under reduced motion (the caller already bails,
+ * this keeps the contract local).
  */
 export function createDeviceTilt(
   targets: DeviceTiltTargets,
   label: DeviceTiltLabel | null,
 ): DeviceTiltHandle | null {
   if (typeof window === 'undefined' || prefersReducedMotion()) return null;
-  if (!window.matchMedia('(pointer: coarse)').matches || window.innerWidth > 800) return null;
+  if (!window.matchMedia('(pointer: coarse)').matches || !passesShortSideGate()) return null;
 
   const deviceOrientation = window.DeviceOrientationEvent as
     (typeof DeviceOrientationEvent & { requestPermission?: () => Promise<unknown> }) | undefined;
@@ -95,7 +128,8 @@ export function createDeviceTilt(
 
   let disposed = false;
   let armed = false;
-  let attached = false;
+  /** Single-listener invariant: one `deviceorientation` listener per lifetime. */
+  let motionAttached = false;
   let paused = false;
   let released = false;
   let baselineReady = false;
@@ -107,7 +141,12 @@ export function createDeviceTilt(
   let smoothY = 0;
   let attempts = 0;
   let gestureArmed = false;
+  let optimistic = false;
   let state: TiltState = requestPermission ? 'pending' : 'auto';
+
+  /** v7 movement gate: entry complete, listener attached, not paused/released. */
+  const motionEnabled = () =>
+    armed && !paused && !released && (state === 'granted' || state === 'auto' || optimistic);
 
   const zeroOffsets = () => {
     for (const setter of setters) {
@@ -138,14 +177,24 @@ export function createDeviceTilt(
     baselineSamples = [];
   }
 
+  /**
+   * Baseline is captured once, with the first 8 valid samples available while
+   * movement is enabled (entry complete, listener attached, not paused).
+   * Pre-entry samples only mark the optimistic flag (assumption 16).
+   */
   const beginBaseline = () => {
-    if (disposed || !attached) return;
+    if (disposed || !motionAttached || !armed || paused) return;
     clearBaselineTimer();
     baselineSamples = [];
     baselineReady = false;
     smoothX = 0;
     smoothY = 0;
     baselineTimer = window.setTimeout(finishBaseline, BASELINE_TIMEOUT_MS);
+  };
+
+  const beginBaselineIfMissing = () => {
+    if (baselineReady) return;
+    beginBaseline();
   };
 
   const normalize = (delta: number): number => {
@@ -177,9 +226,13 @@ export function createDeviceTilt(
   };
 
   const onDeviceOrientation = (event: DeviceOrientationEvent) => {
-    if (disposed || paused || released) return;
+    if (disposed) return;
     const { beta, gamma } = event;
     if (typeof beta !== 'number' || typeof gamma !== 'number') return;
+    // RC-2: finite samples while the permission is still non-final mark the
+    // optimistic path (the listener is attached optimistically by then).
+    if (state !== 'granted' && state !== 'auto' && state !== 'denied') optimistic = true;
+    if (!motionEnabled()) return;
     if (!baselineReady) {
       baselineSamples.push({ beta, gamma });
       if (baselineSamples.length >= BASELINE_SAMPLES) finishBaseline();
@@ -196,8 +249,8 @@ export function createDeviceTilt(
       clearBaselineTimer();
       baselineSamples = [];
       baselineReady = false;
-    } else if (attached) {
-      beginBaseline();
+    } else {
+      beginBaseline(); // guard handles armed/attached
     }
   };
 
@@ -219,22 +272,23 @@ export function createDeviceTilt(
   // Re-capture the held posture after a rotation (D10); landscape stays
   // outside the no-occlusion contract and its sign is pending real-device QA.
   const onOrientationChange = () => {
-    if (!attached || disposed) return;
+    if (disposed || !motionAttached || !armed) return;
     zeroOffsets();
     beginBaseline();
   };
   window.addEventListener('orientationchange', onOrientationChange);
 
-  function attach(): void {
-    if (attached || disposed) return;
-    attached = true;
+  /** v7 single-listener invariant: the first attach wins; denied tears down. */
+  function attachMotion(): void {
+    if (motionAttached || disposed) return;
+    motionAttached = true;
     window.addEventListener('deviceorientation', onDeviceOrientation, { passive: true });
-    if (!paused) beginBaseline();
   }
 
-  function startIfReady(): void {
-    if (disposed || attached || !armed) return;
-    if (state === 'granted' || state === 'auto') attach();
+  function detachMotion(): void {
+    if (!motionAttached) return;
+    motionAttached = false;
+    window.removeEventListener('deviceorientation', onDeviceOrientation);
   }
 
   function showLabel(): void {
@@ -242,27 +296,35 @@ export function createDeviceTilt(
     labelNode.root.hidden = false;
   }
 
-  // --- permission pipeline (v5, automatic) -----------------------------------
+  // --- permission pipeline (v7, automatic) -----------------------------------
 
   function removeGestureListeners(): void {
     if (!gestureArmed) return;
     gestureArmed = false;
-    for (const type of GESTURE_EVENTS) {
+    for (const type of RETRY_EVENTS) {
       window.removeEventListener(type, onGesture);
     }
   }
 
-  function onGesture(): void {
+  /**
+   * One interaction, one attempt. Non-qualifying events (touch pointerdown,
+   * and anything not in RETRY_EVENTS) neither consume nor disarm the retry.
+   */
+  function onGesture(event: Event): void {
+    const pointerType = (event as PointerEvent).pointerType;
+    if (!isActivationQualifyingEvent(event.type, pointerType)) return;
     removeGestureListeners();
     if (disposed) return;
     attemptPermission();
   }
 
-  /** One-shot retry: only while the first attempt was non-final (F1). */
+  /** Re-arm while the last result was non-final and attempts < cap (G3′). */
   function armGestureRetry(): void {
-    if (disposed || gestureArmed || attempts >= 2) return;
+    if (disposed || gestureArmed) return;
+    if (state === 'granted' || state === 'denied') return;
+    if (attempts >= PERMISSION_ATTEMPT_CAP) return;
     gestureArmed = true;
-    for (const type of GESTURE_EVENTS) {
+    for (const type of RETRY_EVENTS) {
       window.addEventListener(type, onGesture, { passive: true });
     }
   }
@@ -271,31 +333,45 @@ export function createDeviceTilt(
     if (disposed) return;
     if (result === 'granted') {
       state = 'granted';
-      startIfReady();
+      attachMotion(); // no-op when the optimistic path already attached
+      beginBaselineIfMissing();
       return;
     }
     if (result === 'denied') {
+      // Terminal: tear the (possibly optimistic) listener down, release the
+      // offsets and show the only visible UI (label) once the entry is done.
       state = 'denied';
+      detachMotion();
+      clearBaselineTimer();
+      baselineSamples = [];
+      baselineReady = false;
+      optimistic = false;
+      zeroOffsets();
       if (armed) showLabel();
       return;
     }
-    // F1: 'prompt' / 'default' / undefined / unknown strings are retryable;
-    // they never produce `denied` and never show the label.
+    // G3′/F1: 'prompt' / 'default' / undefined / unknown strings are
+    // non-final. Never terminal, never a denial, never a label; attach the
+    // motion listener optimistically and re-arm below the cap.
     state = 'prompt-unknown';
+    attachMotion();
+    beginBaselineIfMissing();
     armGestureRetry();
   }
 
   function handleFailure(): void {
     if (disposed) return;
-    // F1: rejections (e.g. NotAllowedError without transient activation) are
-    // not denials; they only arm the one-shot gesture retry.
+    // Non-final rejection (e.g. NotAllowedError without transient activation).
     state = 'pending';
+    attachMotion();
+    beginBaselineIfMissing();
     armGestureRetry();
   }
 
   function attemptPermission(): void {
     if (disposed || !requestPermission) return;
-    if (attempts >= 2) return; // one load attempt + one gesture retry, no more
+    if (state === 'granted' || state === 'denied') return;
+    if (attempts >= PERMISSION_ATTEMPT_CAP) return;
     attempts += 1;
     state = 'requesting';
     let permission: Promise<unknown>;
@@ -309,18 +385,23 @@ export function createDeviceTilt(
   }
 
   if (requestPermission) {
-    attemptPermission();
+    attemptPermission(); // load attempt, no interaction
+  } else {
+    attachMotion(); // Android `auto`: listener at init, movement after entry
   }
 
   return {
     arm() {
       if (disposed || armed) return;
       armed = true;
-      if (state === 'granted' || state === 'auto') {
-        startIfReady();
-      } else if (state === 'denied') {
+      if (state === 'denied') {
         showLabel();
+        return;
       }
+      if (state === 'granted' || state === 'auto') {
+        attachMotion();
+      }
+      beginBaselineIfMissing();
     },
     setReleased(next: boolean) {
       if (released === next) return;
@@ -336,7 +417,7 @@ export function createDeviceTilt(
       if (disposed) return;
       disposed = true;
       removeGestureListeners();
-      window.removeEventListener('deviceorientation', onDeviceOrientation);
+      detachMotion();
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('orientationchange', onOrientationChange);
       observer?.disconnect();

@@ -1,8 +1,7 @@
-# NODO · Fase 01 — ExperienceIntro “sky” + tilt layer · Design spec v6
+# NODO · Fase 01 — ExperienceIntro “sky” + tilt layer · Design spec v7
 
-- **Status**: revision v6 — seamless intro→film continuity, clock landing at a dock anchor (future drink), drink asset spec. v5 (auto-permission, denied label, star motion, F1/F2) and v4 (text exit) are unchanged.
-- **v6 adds**: film fallback background identical to the veil + overlay gated off + film at constant opacity 1 + no reveal scale; the 55–85 % dissolve replaced by a function-based landing of the clock wrapper to `[data-experience-dock]` (no blur, clock visible to 100 %); the drink asset contract (§13).
-- **Scope**: `src/components/home/ExperienceIntro.astro` + `src/lib/motion/homeExperience.ts` + `src/components/home/ScrollFilm.astro`. No `src/**` or test files were modified by this handoff.
+- **Status**: revision v7 — production bug-fix design for the v5 auto-permission pipeline (§1.1/§1.1.2): activation-qualifying retry events (RC-1), non-final results never terminal (5-attempt cap), Chromium optimistic attach (RC-2), short-side interaction gate. v6 (continuity/landing) and v5 (label/amplitudes/F1/F2) are unchanged.
+- **Scope**: `src/lib/motion/deviceTilt.ts` + tests + this spec. No `src/**` or test files were modified by this design handoff.
 - **Review artifact**: `mock/index.html` (5 presets; state/pointer/permission/stars/continuity/dock/exit controls; live clearance badges) → `mock/stage.html` (`__stage` API), `shots/`, `clock-bbox.json`, `gyro.json`, `particles.json`, `sparks.json`.
 
 ## Sources of truth
@@ -21,27 +20,41 @@
 
 ## 1. Gyro spec (device tilt on touch/coarse devices)
 
-### 1.1 Permission UX (v5 — automatic, no controls)
+### 1.1 Permission UX (v7 — automatic, no controls; corrected retry policy)
 
-The pipeline runs on load, only when `(pointer: coarse)` and width ≤ 800 px and motion is not reduced. There is **no button and no focusable element anywhere**.
+The pipeline runs on load, only when `(pointer: coarse)` and `Math.min(innerWidth, innerHeight) ≤ 800` (§1.1.2) and motion is not reduced. There is **no button and no focusable element anywhere**.
 
-| State | Condition / trigger | Movement | UI |
-|---|---|---|---|
-| `unsupported` | no `DeviceOrientationEvent` / no usable API | off | none |
-| `auto` | events exist, `requestPermission` is not a function (Android Chrome/Firefox) | on after entry | none |
-| `pending` | `requestPermission` exists; load attempt rejected (`NotAllowedError`, no gesture yet) | off | none (retry armed) |
-| `prompt-unknown` | `requestPermission()` resolved anything that is **not** `granted`/`denied` (`'prompt'`, `'default'`, `undefined`, unknown string) | off | none (retry armed) |
-| `requesting` | a call is in flight (load or gesture retry) | off | none |
-| `granted` | resolved `'granted'` | arms on entry-complete (or immediately if already complete) | none |
-| `denied` | **resolved `'denied'` only** | off | **label shown** (§1.1.1) |
+**Why v7 exists**: the deployed v6 build reproduced two silent-failure paths — **(RC-1)** the retry listened on `pointerdown`/`touchstart`, which are **not activation-qualifying** for touch (W3C Activation triggering; WebKit `EventHandler.cpp`), so the first tap consumed the single retry, iOS rejected `NotAllowedError` and the hard `k ≥ 2` cap left a terminal state (no prompt, no label, no motion); **(RC-2)** Chromium ≥ 151 resolves `'prompt'` from `requestPermission()` **without showing a dialog**, so two `'prompt'` results hit the same cap → terminal. The policy below removes both.
 
-- **Load attempt**: on init (after capability detection) call `requestPermission()` once. On iOS Safari this rejects `NotAllowedError` (no transient activation) → `pending`; on Chromium builds that now expose the API it may resolve `'prompt'`/unknown → `prompt-unknown`. **Never treat a non-final result as a denial** (F1) — no “Sin movimiento”, no label.
-- **One-shot gesture retry**: from `pending`/`prompt-unknown`, arm a passive, self-removing listener on the first of `pointerdown`, `touchstart`, `wheel`, `scroll`, `keydown`; on fire, remove all five and call `requestPermission()` once (`requesting`). A second failure ends the pipeline silently for this page load (only a *resolved* denial shows the label).
-- **After a real denial**: no retry in the same page load; the next page load runs the load attempt again (iOS does not re-show the native prompt by itself; a fresh load is the honest way to “ask again”, and it succeeds if the user changed Settings).
-- **Decision memory**: module-scoped in `homeExperience.ts`, in-memory for the page load only; **no storage** (no localStorage/cookie/sessionStorage).
+| State | Condition / trigger | Movement | Motion listener | UI |
+|---|---|---|---|---|
+| `unsupported` | no `DeviceOrientationEvent` / no usable API | off | — | none (terminal) |
+| `auto` | events exist, `requestPermission` is not a function (Android Chrome/Firefox) | on after entry | attached at init | none |
+| `pending` | non-final: rejection was `NotAllowedError` (iOS load attempt, no gesture yet) | off | **attached optimistically** after the first non-final result (inert on iOS pre-grant) | none (retry armed) |
+| `prompt-unknown` | non-final: resolved anything that is not `granted`/`denied` (`'prompt'`, `'default'`, `undefined`, unknown) — Chromium ≥ 151 returns this without a dialog | off unless samples arrive (→ optimistic) | **attached optimistically** (revives parallax when the platform delivers events) | none (retry armed) |
+| `optimistic` (flag, not a UI state) | ≥ 1 finite `deviceorientation` sample while non-final | on after entry | attached (single-listener invariant) | none |
+| `requesting` | a call is in flight (load or interaction attempt) | unchanged from prior state | unchanged | none |
+| `granted` | resolved `'granted'` | on after entry (or immediately if complete) | attached (same single listener) | none |
+| `denied` | **resolved `'denied'` only** | off | **torn down** | **label shown** (§1.1.1) |
+| `cap-reached` | 5 attempts used, last result non-final | off unless optimistic samples arrived | attached if optimistic | none (retries stop; never a label) |
+
+- **Load attempt**: on init (after capability detection) call `requestPermission()` once. Non-final results are **never terminal and never a denial** (F1): iOS rejects `NotAllowedError`; Chromium may resolve `'prompt'`/unknown with no dialog.
+- **Interaction retry — activation-qualifying events only**: after any non-final result, arm passive, self-removing listeners on exactly `touchend`, `pointerup`, `click`, `mousedown`, `keydown`, plus `pointerdown` **only when `event.pointerType === 'mouse'`** (desktop is out of scope; harmless). Do **not** listen on `touchstart`, `wheel` or `scroll` — not activation-qualifying, they would consume attempts without a prompt (RC-1). On fire: remove all listeners, call `requestPermission()` once, and if the result is non-final re-arm while `attempts < 5`.
+- **Attempts and termination**: `attempts` counts every `requestPermission()` call, including the load attempt; cap **5 per page load**. The pipeline stops only on: resolved `denied` (→ label), `unsupported`, reduced motion, or the cap. Every non-final result re-arms below the cap; no UI appears for non-final states — the only visible outcome is the denied label.
+- **Optimistic attach**: after the **first** non-final result, attach the single `deviceorientation` listener (no UI change). iOS is inert before grant; Chromium revives the parallax as soon as the platform actually delivers events. At most one listener is ever attached (init / optimistic / grant — whichever comes first). Samples feed motion only once the entry is complete and while `!released && !paused`. A later resolved `denied` **tears down** the listener, zeroes all offsets and shows the label; a later `granted` keeps the same listener and begins the baseline capture.
+- **After a real denial**: no retry in the same page load; the next page load runs the load attempt again (iOS does not re-show the native prompt by itself; a fresh load is the honest way to “ask again”).
+- **Decision memory**: module-scoped in `deviceTilt.ts`, in-memory for the page load only; **no storage** (no localStorage/cookie/sessionStorage).
 - **Android**: auto-start, no UI (unchanged).
 - **Reduced motion**: never requested, never listens, label never shown.
 - **Secure context**: `deviceorientation` and `requestPermission()` are secure-context-only (MDN) → HTTPS required (localhost exempt). **Deployment risk to flag.**
+
+#### 1.1.2 Interaction gate (landscape decision)
+
+The pipeline gate is `(pointer: coarse)` **and** `Math.min(innerWidth, innerHeight) ≤ 800`.
+
+- Short-side evaluation keeps **phones rotated to landscape** (e.g. 844×390 → 390) inside the effect, which the v5 width gate lost — a rotated phone still has live sensors, and the small vertical tilt budget tolerates the desktop-layout composition used there.
+- **Large tablets stay excluded**: iPad Pro 11″ (834×1194 → 834) and iPad 10.9″ (820×1180 → 820) exceed 800 on the short side. Only small tablets (≤ 800 short side, e.g. iPad mini 744×1133) are included — touch-first devices with the same physics.
+- The occlusion contract remains formally verified in portrait; landscape composition is outside it (existing note). The ±14 px vertical tilt budget is what protects the contract, not the gate.
 
 #### 1.1.1 Denied label spec
 
@@ -168,7 +181,11 @@ New DOM: sky ≈ 176 nodes + denied label 2 nodes (`__title`, `__hint` spans ins
 ## 8. Testability notes (for the specifier/developer)
 
 - **Simulate permission per state** (Playwright `page.addInitScript`): `granted`/`denied` → `DeviceOrientationEvent.requestPermission = () => Promise.resolve('granted' | 'denied')`; non-final (F1) → `Promise.resolve('prompt')`; iOS load attempt without a gesture → `Promise.reject(new DOMException('', 'NotAllowedError'))`; Android → no `requestPermission` property; unsupported → `delete window.DeviceOrientationEvent`. Spy the calls (`window.__calls`) to assert counts.
-- **Assert the automatic flow**: init calls `requestPermission` exactly once with no interaction; the first dispatched gesture (`pointerdown`) triggers exactly one more call and the listeners self-remove; a second failure never calls again in the page load.
+- **Assert the automatic flow (v7)**: init calls `requestPermission` exactly once with no interaction; every **activation-qualifying** gesture produces exactly one additional call; non-final results never terminate the pipeline below the cap; the load attempt + 4 interactions = 5 calls maximum.
+- **RC-1 — activation semantics per engine**: dispatch `touchstart`, `wheel`, `scroll` and a touch `pointerdown` (`pointerType: 'touch'`) → **no** additional `requestPermission` call; dispatch `touchend`, `pointerup`, `click`, `mousedown`, `keydown` and a mouse `pointerdown` (`pointerType: 'mouse'`) → exactly one call each. Chromium only models the mouse path reliably; **a Playwright WebKit project (or equivalent engine run) is required for the iOS touch semantics** — add it as a CI requirement for this suite (a synthetic-event unit test of the gesture filter is an acceptable secondary).
+- **RC-2 — repeated `'prompt'` (Chromium ≥ 151)**: stub `requestPermission` to always resolve `'prompt'`; run the load attempt + four interactions → five calls, **no label, no silent terminal before the cap**, and no further calls after the cap.
+- **Optimistic attach**: after the first non-final result, dispatch `new DeviceOrientationEvent('deviceorientation', { beta: 95, gamma: 12 })` with finite values → after entry the motion targets move (non-zero transforms), **no label**, no extra `requestPermission` call. Then stub a resolved `denied` and fire one more qualifying gesture → listener torn down, offsets 0, label shown.
+- **Single-listener invariant**: exactly one `deviceorientation` add across every path (init / optimistic / grant), asserted by spying `addEventListener`/`removeEventListener` counts.
 - **Assert no interactive control**: `[data-experience-tilt]` contains no `<button>` and no element with `tabindex >= 0`; `getComputedStyle(...).pointerEvents === 'none'`.
 - **Assert the label**: `role="status"`, `hidden` for every state except a resolved `denied`, exact copy, and never shown under reduced motion or on desktop (pipeline not started).
 - **Simulate tilt** (Playwright, Chromium builds `DeviceOrientationEvent`):
@@ -187,8 +204,9 @@ v2 criteria 1–9 (structure/no-JS/reduced-motion/twinkle/budgets/mask/overflow/
 
 - **G1 — No interactive control**: no button, no focusable element, no `[data-experience-tilt-ask]` anywhere; the only tilt DOM is the non-interactive label (`pointer-events: none`).
 - **G2 — Automatic load attempt**: init calls `requestPermission()` exactly once when the API exists, without user interaction; when the API is absent → `auto` (Android) and movement arms after entry.
-- **G3 — Non-final results are retryable (F1)**: `'prompt'`, unknown strings, `undefined` and non-denial rejections never produce a denial state, never show the label, and arm the one-shot gesture retry.
-- **G4 — Gesture retry**: the first of `pointerdown/touchstart/wheel/scroll/keydown` triggers exactly one additional `requestPermission()` call, listeners self-remove; `granted` arms movement, `denied` shows the label.
+- **G3 — Non-final is never terminal (v7)**: `'prompt'`, unknown strings, `undefined` and non-denial rejections never produce a denial state and never show the label; each re-arms the retry on the next activation-qualifying interaction until the **5-attempt cap**; the pipeline terminates only on resolved `denied`, `unsupported`, reduced motion, or the cap.
+- **G4 — Activation-qualifying retry (v7)**: `touchend`, `pointerup`, `click`, `mousedown`, `keydown` and mouse `pointerdown` each trigger exactly one additional `requestPermission()` call and the listeners self-remove; `touchstart`, `wheel`, `scroll` and touch `pointerdown` trigger none.
+- **G10 — Optimistic attach**: after the first non-final result the `deviceorientation` listener is attached once (no UI); finite samples arm motion after entry without a resolved grant; a later resolved `denied` tears it down and shows the label.
 - **G5 — Denied label**: only a resolved `'denied'` shows the label; exact copy, `role="status"`, `pointer-events: none`, no focusable element, hidden under reduced motion and on desktop, fades with the hint.
 - **G6 — Reduced motion**: `requestPermission` is never called, no listener is attached, no label is ever shown.
 - **G7 — Movement arming**: sensors start only after a grant **and** after the entry timeline completes; a mid-intro grant arms on completion.
@@ -221,7 +239,11 @@ v4 adds (text exit):
 >
 > “NODO cocktail-bar intro. Desktop frames 1440×900/700, 1280×650; mobile frames 390×844, 360×640 (entry, title split at 20/30/40 %, landing 45 %, tilt extremes). Dark night-green #071311, petrol haze, gold jewelry; ornate gold/black steampunk clock centered between two editorial serif lines (cream #efe8d0, NODO italic gold-soft #e4c77a), ~52 svh gap desktop / 34 svh mobile. Behind the type: 150 cream/stone micro-dust + 11 gold compass-rose marks, bottom mask. Between 20 % and 40 % the two title lines part horizontally to the sides (line 1 left, line 2 right, ±120 %), pure translation, no fade. Mobile adds device-tilt parallax (roll→x, pitch→y; clock ±min(24,6.2vw)/±14 px; sparks 48 %, dust 36 %) requested automatically at load with a one-shot first-gesture retry (no controls); a non-interactive label ‘Viví la experiencia completa / Habilitá el acceso a movimiento y orientación en Ajustes › Safari’ if the user denied. No WebGL, no glassmorphism, no UI chrome.”
 
-## 12. Evidence appendix (v5)
+## 12. Evidence appendix (v5–v6; v7 provenance)
+
+- **v7 provenance**: the two silent-failure paths (RC-1 touch activation semantics; RC-2 Chromium `'prompt'` without a dialog) were reproduced by the debugger against the deployed v6 build (`https://nodo-landing-chi.vercel.app/`). The corrected policy in §1.1/§1.1.2 is the design response; its verification is the RC-1/RC-2/optimistic cases in §8 (to be implemented in the test suite — the harness evidence below predates this fix and does not cover activation semantics).
+- **v6 continuity/landing** (design harness): pixel delta 0 across the crossfade on 5 presets; landing settle `dx/dy = 0`, ratio 2.8–3.8, visible at 100 %.
+- **v5 permission/label/amplitudes/F2** (design harness): matrix PASS as recorded below.
 
 - **Check matrix** (`check-mock.mjs`): 5 presets × (13 desktop states | 16 mobile states) × 2 font modes; v4 exit trajectory + drift evidence; v5 auto-permission matrix (7 states), denied-label semantics, gesture retry (granted/denied), v5 star amplitudes (pointer + gyro), F2 pointer/gyro release, desktop no-op, reduced-motion → `RESULT: PASS — failures=0 warnings=0`, 0 console/page errors, bbox drift 0, overflowX 0.
 - **Permission matrix readback**: `pending`/`requesting`/`prompt-unknown`/`unsupported` → applied (0,0), label hidden; `granted`/`auto` → (1,1), label hidden; `denied` → (0,0), label shown; label `role="status"`, title exact, hint contains “Ajustes”, `hasButton=false`; gesture retry → granted arms movement; retry → denied shows the label; reduced motion → no label, no gyro.

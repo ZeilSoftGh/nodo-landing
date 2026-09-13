@@ -1,9 +1,9 @@
-# NODO Fase 01 — Upgrade ExperienceIntro: cielo mixto + tilt del reloj (diseño v4 + deltas v5/v6)
+# NODO Fase 01 — Upgrade ExperienceIntro: cielo mixto + tilt del reloj (diseño v4 + deltas v5/v6/v7)
 
-- **Fecha**: 2026-09-10 (reconciliación final v4 + delta v5: permiso automático/F1/F2/estrellas; + **delta v6**: continuidad intro→film, aterrizaje del reloj en dock y contrato del asset de drink).
+- **Fecha**: 2026-09-10 (reconciliación final v4 + delta v5: permiso automático/F1/F2/estrellas; + **delta v6**: continuidad, dock y drink; + **delta v7**: política de permiso corregida por el bug de producción — RC-1 activación táctil, RC-2 `'prompt'` repetido, attach optimista, cap 5, gate por lado corto).
 - **Estado**: **listo para desarrollo end-to-end**. Todos los inputs de diseño están en repo y verificados por hash; no quedan bloqueantes.
 - **Fuente autoritativa de diseño (en repo, byte-identical)**:
-  - `docs/design/experience-intro/DESIGN_SPEC.md` — 38,495 B; sha256 `709b62a1…c68d` (**v6**; añade §13 continuidad/landing/drink; v5 y v4 sin cambios).
+  - `docs/design/experience-intro/DESIGN_SPEC.md` — 44,456 B; sha256 `e082f728…e1e3ee` (**v7**; corrige §1.1/§1.1.2/§8/§9/§12; v6 y v5 sin cambios salvo lo indicado).
   - `docs/design/experience-intro/particles.json` — 9,325 B; sha256 `12c6bbdd…4379` (sin cambios).
   - `docs/design/experience-intro/clock-bbox.json` — 304 B; sha256 `b540f08b…fdaf` (sin cambios).
   - `docs/design/experience-intro/sparks.json` — 6,954 B; sha256 `7fcb2df7…3377` (sin cambios).
@@ -43,7 +43,7 @@ El upgrade v4 agrega un cielo decorativo mixto (polvo + chispas, DOM/SVG), tilt 
 Implementar el upgrade aprobado sobre `ExperienceIntro`/`homeExperience`/`ScrollFilm`:
 
 - Cielo decorativo SSR (polvo SVG + chispas con máscara) visible sin JS y estático bajo reduced motion.
-- Tilt híbrido: parallax de puntero en desktop (fine pointer > 800 px) y giroscopio en mobile (coarse pointer ≤ 800 px) con pipeline de permiso automático (v5).
+- Tilt híbrido: parallax de puntero en desktop (fine pointer > 800 px) y giroscopio en mobile (gate v7: `(pointer: coarse)` y lado corto ≤ 800) con pipeline de permiso automático (v5/v7).
 - Deriva de scroll del cielo dentro del `introTl` existente.
 - Salida lateral del título (reemplaza el ejemplo de §22) completando en 40 %.
 - **v6 — continuidad intro→film**: film fallback = stack del velo, opacidad constante 1, sin scale de panel, overlay gateado a video real.
@@ -69,7 +69,7 @@ Implementar el upgrade aprobado sobre `ExperienceIntro`/`homeExperience`/`Scroll
 
 | Fuente | Estado | Uso |
 |---|---|---|
-| `docs/design/experience-intro/DESIGN_SPEC.md` (v6; sha256 `709b62a1…c68d`) | Leído completo (305 líneas) | §13 v6: continuidad intro→film, dock de aterrizaje del reloj, contrato del asset de drink, criterios C1–C7 y supersesión §22/§53; más v5 (permiso automático, F1/F2, estrellas) y v4 (exit) |
+| `docs/design/experience-intro/DESIGN_SPEC.md` (v7; sha256 `e082f728…e1e3ee`) | Leído completo (327 líneas) | §1.1/§1.1.2 v7 (retry por eventos de activación, cap 5, attach optimista, gate por lado corto), §8/§9/§12 v7 (RC-1/RC-2, G3′/G4′/G10/G11), más v6 (continuidad/landing/drink) y v5/v4 |
 | `docs/design/experience-intro/particles.json` (sha256 `12c6bbdd…4379`) | Leído completo | 150 coordenadas literales `[x,y]` (0–100), `seed 0x4E4F444F`, `stats { total:150, warm:114, cool:36 }` |
 | `docs/design/experience-intro/clock-bbox.json` (sha256 `b540f08b…fdaf`) | Leído completo | Constantes exactas del bbox visible del reloj (`fx.x0/x1/y0/y1`) |
 | `docs/design/experience-intro/sparks.json` (sha256 `7fcb2df7…3377`) | Leído completo (267 líneas) | Tabla autoritativa de las 11 chispas: `leftPct`, `topPct`, `sizePxDesktop`, `sizePxMobile`, `opacity`, `rotationDeg`, `tone`, `twinkle`, `twinkleDelaySec`, `visibleMobile`, `mobileOverride` (#7), más `hiddenOnMobile [3,9,11]`, mask, halo y parámetros de twinkle |
@@ -94,6 +94,9 @@ Implementar el upgrade aprobado sobre `ExperienceIntro`/`homeExperience`/`Scroll
 12. **Landing v6**: la posición del dock y las métricas del reloj se miden en runtime (`getBoundingClientRect` del dock + `clock.offsetWidth`); `LANDED_SCALE` = 0.32 desktop / 0.30 mobile (acceptable `matchMedia` o function values); `invalidateOnRefresh` ya presente recalcula en resize.
 13. **Dock decorativo**: el nodo existe vacío en producción (el mock solo dibuja un placeholder dashed para review); `aria-hidden`, `pointer-events: none`, sin foco, sin overflow. El drink futuro lo llenará.
 14. **Drink (spec-only)**: no se escribe ningún `<picture>`/`<img>` hasta que el asset exista; el contrato de formato, tamaños, presupuestos, carga y QA (§7.10) queda fijado ahora y el swap es una tarea futura.
+15. **v7 — cap de 5 intentos (decisión del lead)**: `attempts` cuenta cada llamada a `requestPermission()`, incluida la de carga; el pipeline solo termina en `denied` resuelto (→ label), `unsupported`, reduced motion o cap. Todos los resultados no finales re-arman mientras `attempts < 5`.
+16. **v7 — baseline con attach optimista**: el baseline (8 muestras) se captura **una sola vez**, con las primeras 8 muestras válidas disponibles cuando el movimiento está habilitado (entrada completa). Un grant posterior no re-baseline si ya hay baseline (evita saltos); muestras pre-entrada solo marcan el flag `optimistic` y no mueven ni fijan baseline. Decisión de implementación de un borde que el design no fija.
+17. **v7 — proyecto WebKit acotado (decisión del lead)**: Playwright ya trae WebKit (sin dependencia nueva); se agrega un proyecto `webkit-tilt` filtrado a los casos de activación/permiso táctil (`@webkit`), con `grepInvert` en el proyecto Chromium para no duplicar. Costo CI: un engine extra + N casos acotados, no la suite completa (detalle en §13.5).
 
 > Chispas: **sin supuestos**. Todos sus valores vienen literalmente de `sparks.json` (incluida la ausencia de `animation-delay` en el índice 5: `twinkleDelaySec: null` → no se emite la propiedad y aplica el default CSS de 0 s; es intencional, no un dato faltante).
 
@@ -106,8 +109,8 @@ Implementar el upgrade aprobado sobre `ExperienceIntro`/`homeExperience`/`Scroll
 | D3 | Encoding `cx`/`cy` % + `r` px, sin `viewBox` (supuesto 1). | Mantiene círculos redondos y `r` físico |
 | D4 | Cero timelines nuevas: deriva del cielo y salida del título dentro del `introTl` existente; inputs con `gsap.quickTo` compartidos. | DESIGN_SPEC §6; §61 |
 | D5 | Módulos `pointerParallax.ts` y `deviceTilt.ts`, creados una vez, con cleanup propio. Tilt sobre la `<img>` del reloj; capas reciben `x`/`y`/`rotation`. | DESIGN_SPEC §1.2/§6; evita colisión de propiedades |
-| D6 | **Sin control interactivo (v5)**: pipeline de permiso automático al cargar + reintento one-shot en el primer gesto; único UI = label no interactivo `experience-tilt`/`__title`/`__hint`, después del hint, SSR `hidden`, `role="status"`, `pointer-events: none`. | DESIGN_SPEC §1.1/§1.1.1/§4 |
-| D7 | Android (`requestPermission` no es función): auto-start tras completar la entrada, sin UI. iOS: intento de carga; si queda pendiente/no-final, retry por gesto; movimiento solo con grant + entrada completa. | DESIGN_SPEC §1.1/§1.4 |
+| D6 | **Sin control interactivo (v5)**: pipeline de permiso automático al cargar + reintento por **interacciones de activación** (v7); único UI = label no interactivo `experience-tilt`/`__title`/`__hint`, después del hint, SSR `hidden`, `role="status"`, `pointer-events: none`. | DESIGN_SPEC §1.1/§1.1.1/§4 |
+| D7 | **Gate v7**: el pipeline corre solo con `(pointer: coarse)` **y** `Math.min(innerWidth, innerHeight) ≤ 800` (teléfonos rotados entran; tablets grandes quedan fuera). Android (`requestPermission` no es función): auto-start tras la entrada, sin UI. | DESIGN_SPEC §1.1/§1.1.2 |
 | D8 | Gyro: `gamma→x`, `beta→y` con baseline de 8 muestras (≤320 ms); `n = clamp((|d| ≤ 1.5 ? 0 : d)/25, −1, 1)`; EMA α=0.2; amplitudes v5 por profundidad (tabla §7.3.2). | DESIGN_SPEC §1.2/§1.3 |
 | D9 | Compensación de orientación con la fórmula exacta de DESIGN_SPEC §1.2 (`cos/sin` sobre `screen.orientation.angle`); landscape fuera del contrato de no-oclusión. | DESIGN_SPEC §1.2/§3 |
 | D10 | Pausa (fuera de viewport / `document.hidden` / cambio de orientación): liberar offsets a 0, ignorar muestras y re-baseline al volver. | DESIGN_SPEC §1.4 |
@@ -119,12 +122,15 @@ Implementar el upgrade aprobado sobre `ExperienceIntro`/`homeExperience`/`Scroll
 | D16 | Memoria de decisión module-scoped (página actual), sin storage; tras una denegación resuelta no hay reintento en la misma carga (la próxima carga vuelve a intentar). | DESIGN_SPEC §1.1 |
 | D17 | Doc de producto: edición mínima (§12, §17, §22, §53, §56) + nota de supersesión del ejemplo de salida y de “el reloj desaparece” (§22/§53), referencia a §56 para la continuidad v6; el spec de diseño en repo es la referencia del upgrade. | Handoff G + DESIGN_SPEC §13.5 |
 | D18 | Chispas: `docs/design/experience-intro/sparks.json` es la fuente única. Se copia byte-identical a `src/lib/experience/sky-sparks.json`; `sky.ts` la tipa y el template la consume para flags (twinkle, `visibleMobile`, tone) y orden; la geometría se materializa en clases `--N` (CSP prohíbe `style=""`), y una **prueba de paridad** lee el JSON y compara cada valor contra el DOM. | Tarea de reconciliación final; CSP + DESIGN_SPEC §4 |
-| D19 | **F1**: `requestPermission()` puede resolver `'prompt'`/`'default'`/`undefined`/string desconocido o rechazar; nada de eso es denegación. Se mapea a `pending`/`prompt-unknown` con reintento armado, sin label y sin copy de error. Solo `'denied'` resuelto muestra el label. | DESIGN_SPEC §1.1/§9 (G3) |
+| D19 | **F1 v7**: `requestPermission()` puede resolver `'prompt'`/`'default'`/`undefined`/string desconocido o rechazar; nada de eso es denegación ni terminal mientras `attempts < 5`. Cada resultado no final re-arma el retry sobre la próxima interacción de activación; solo `'denied'` resuelto muestra el label. | DESIGN_SPEC §1.1/§9 (G3′) |
 | D20 | **F2**: el release por umbral es una transición de estado del scrub, no un efecto de input: `onUpdate` compara `self.progress > 0.003` contra el estado previo y, en el cruce, llama `setReleased(true)` en ambos módulos (setters a 0 y bloqueo de input); al cruzar hacia abajo, `setReleased(false)`. | DESIGN_SPEC §1.4/§9 |
 | D21 | **Amplitudes de estrellas v5**: puntero sparks `/32` + rot `/2000`, dust `/40` + rot `/2600`; gyro sparks 48 % + rot `n·0.45°`, dust 36 % + rot `n·0.34°`. Reloj intacto (`/15` y ±min(24, 6.2vw)/±14). | DESIGN_SPEC §1.3/§6 |
 | D22 | **Continuidad v6**: el fallback del film usa el stack exacto del velo; el viewport del film queda a `opacity: 1` constante (se elimina el tween 0→1) y sin transform de panel (se elimina `scale 1.04→1`); el overlay nace `opacity: 0` y solo pasa a 1 (0.4 s ease) cuando el video real tiene metadatos. Así el compuesto en 35–65 % es idéntico al velo. | DESIGN_SPEC §13.1/§13.4 (C1/C2) |
 | D23 | **Aterrizaje v6**: el dissolve del reloj (55–85 %) se reemplaza por un tween function-based único dentro del `introTl` que lleva el **wrapper** del reloj al centro del dock (`x/y` medidos, `yPercent 0`, `scale 0.32/0.30`, `rotation 0`, `ease none`, 55→85 %, `invalidateOnRefresh`), sin `opacity`/`filter`; el reloj queda visible y nítido al 100 %. Sin Flip ni deps nuevas. | DESIGN_SPEC §13.2/§13.4 (C3/C4) |
 | D24 | **Drink (placeholder)**: el asset no existe; se fija solo el contrato (§7.10). El nodo dock queda vacío y decorativo; el `<picture>` AVIF/WebP/PNG se agrega en una tarea futura con `loading="lazy"`, `decoding="async"`, dimensiones explícitas, `fetchpriority="low"`, `aria-hidden`, `alt=""`. | DESIGN_SPEC §13.3/§13.4 (C7) |
+| D25 | **Retry v7 — solo eventos de activación**: `touchend`, `pointerup`, `click`, `mousedown`, `keydown`, y `pointerdown` **solo si `pointerType === 'mouse'`**; sin `touchstart`/`wheel`/`scroll` ni `pointerdown` táctil (RC-1). Listeners pasivos y auto-removentes, **una llamada por interacción**, re-armado tras cada resultado no final mientras `attempts < 5`. | DESIGN_SPEC §1.1/§8 (RC-1, G3′/G4′) |
+| D26 | **Attach optimista v7 (RC-2)**: tras el **primer** resultado no final, adjuntar el listener `deviceorientation` único (sin UI); las muestras mueven solo con la entrada completa y `!released && !paused`; un `denied` posterior lo desmonta, pone offsets a 0 y muestra el label; un `granted` posterior conserva el mismo listener y (si no hay baseline) lo captura. Un solo listener en toda la vida (init/optimista/grant, el primero gana). | DESIGN_SPEC §1.1/§8 (G10) |
+| D27 | **Proyecto WebKit acotado**: `playwright.config.ts` agrega `webkit-tilt` (`devices['iPhone 13']`, `grep: /@webkit/`) y el proyecto Chromium agrega `grepInvert: /@webkit/`; `pnpm test:e2e` sigue siendo `pnpm build && playwright test` y ejecuta la suite completa + los casos `@webkit` una vez (sin duplicar la suite). Playwright ya trae WebKit: sin dependencia nueva. | Decisión del lead + DESIGN_SPEC §8 (RC-1) |
 
 ## 7. Contratos
 
@@ -392,7 +398,7 @@ export interface PointerParallaxHandle {
 export function createPointerParallax(options: PointerParallaxOptions): PointerParallaxHandle | null;
 ```
 
-- Guardas de creación: reduced motion ya viene filtrado por `initHomeExperience`; además, si `!matchMedia('(pointer: fine)').matches || innerWidth <= 800` → `null` (sin listener).
+- Guardas de creación: reduced motion ya viene filtrado por `initHomeExperience`; además, si `!matchMedia('(pointer: fine)').matches || innerWidth <= 800` → `null` (sin listener). Nota v7: el gate del tilt (`Math.min(innerWidth, innerHeight) ≤ 800`) es **independiente**; el puntero conserva su guarda de ancho porque su ergonomía es “cursor en pantalla”, no un teléfono rotado.
 - Setters (creados una sola vez) — **amplitudes v5**:
 
 | Target | Propiedad | Divisor | Duración / ease |
@@ -408,7 +414,7 @@ export function createPointerParallax(options: PointerParallaxOptions): PointerP
 - Cleanup: remover listener y matar los tweens de cada setter (`setter.tween?.kill()`, con fallback `gsap.killTweensOf([clockImg, sparks, dust])`).
 - No hay listener de `resize`: la guarda se re-evalúa por evento (cruce de breakpoint en runtime fuera de alcance).
 
-#### 7.3.2 Device tilt (mobile: `(pointer: coarse)` **y** `innerWidth <= 800`) — DESIGN_SPEC §1.2–§1.4
+#### 7.3.2 Device tilt (mobile: `(pointer: coarse)` **y** `Math.min(innerWidth, innerHeight) <= 800`) — DESIGN_SPEC §1.2–§1.4 (v7)
 
 Módulo nuevo `src/lib/motion/deviceTilt.ts`:
 
@@ -428,33 +434,37 @@ export function createDeviceTilt(
 ): DeviceTiltHandle | null;
 ```
 
-**Estados v5 — pipeline automático, sin controles (DESIGN_SPEC §1.1)**
+**Estados v7 — pipeline automático, sin controles (DESIGN_SPEC §1.1)**
 
-| Estado | Condición / trigger | Movimiento | UI |
-|---|---|---|---|
-| `unsupported` | no existe `DeviceOrientationEvent` (o API inutilizable) | off | ninguna |
-| `auto` | existe el evento y `requestPermission` **no** es función (Android) | on tras la entrada | ninguna |
-| `pending` | existe `requestPermission`; el intento de carga rechazó (`NotAllowedError` sin gesto / rechazo no final) | off | ninguna (retry armado) |
-| `prompt-unknown` | `requestPermission()` resolvió algo que no es `granted`/`denied` (`'prompt'`, `'default'`, `undefined`, string desconocido) | off | ninguna (retry armado) |
-| `requesting` | llamada en vuelo (intento de carga o retry por gesto) | off | ninguna |
-| `granted` | resolvió `'granted'` | se arma al completar la entrada (o de inmediato si ya completó) | ninguna |
-| `denied` | **solo** resolvió `'denied'` | off | **label visible** (§7.2, §7.4) |
+| Estado | Condición / trigger | Movimiento | Listener de motion | UI |
+|---|---|---|---|---|
+| `unsupported` | no existe `DeviceOrientationEvent` / API inutilizable | off | — | ninguna (terminal) |
+| `auto` | existe el evento, `requestPermission` no es función (Android) | on tras la entrada | adjunto en init | ninguna |
+| `pending` | no final: rechazo `NotAllowedError` (intento de carga iOS sin gesto) | off | **adjunto optimista** tras el primer no-final (inerte en iOS pre-grant) | ninguna (retry armado) |
+| `prompt-unknown` | no final: resolvió algo que no es `granted`/`denied` (`'prompt'`, `'default'`, `undefined`, desconocido) — Chromium ≥151 sin diálogo | off salvo muestras (→ optimista) | **adjunto optimista** (revive el parallax cuando la plataforma entrega eventos) | ninguna (retry armado) |
+| `optimistic` (flag) | ≥1 muestra finita de `deviceorientation` en estado no final | on tras la entrada | adjunto (invariante de listener único) | ninguna |
+| `requesting` | llamada en vuelo (carga o interacción) | igual que el estado previo | igual | ninguna |
+| `granted` | resolvió `'granted'` | on tras la entrada (o inmediato si ya completó) | adjunto (mismo listener) | ninguna |
+| `denied` | **solo** resolvió `'denied'` | off | **desmontado** | **label visible** (§7.2, §7.4) |
+| `cap-reached` | 5 intentos usados, último resultado no final | off salvo muestras optimistas | adjunto si hubo optimista | ninguna (sin más reintentos, nunca label) |
 
-- **Intento de carga**: al crear el módulo (después de la detección de capacidad y de las guardas coarse/≤800/reduced) llamar `requestPermission()` **una sola vez**. iOS Safari lo rechaza con `NotAllowedError` (sin activación transitoria) → `pending`; builds de Chromium que ya exponen la API pueden resolver `'prompt'`/desconocido → `prompt-unknown`.
-- **F1 — nunca denegación por resultado no final**: `'prompt'`, `'default'`, `undefined`, strings desconocidos y cualquier rechazo que no sea la resolución `'denied'` se tratan como retryables; **no** muestran label ni copy de error.
-- **Retry one-shot por gesto**: desde `pending`/`prompt-unknown`, armar listeners pasivos y auto-removentes para el primero de `pointerdown`, `touchstart`, `wheel`, `scroll`, `keydown`; al dispararse, remover los cinco y llamar `requestPermission()` una vez (`requesting`). Si esa llamada tampoco termina en `granted`/`denied`, el pipeline termina en silencio para esta carga (no hay tercer intento ni label).
-- **Tras denegación resuelta**: no hay reintento en la misma carga; la próxima carga ejecuta otra vez el intento de carga (interpretación autoritativa de “la próxima oportunidad”, §5 supuesto 9).
-- **Memoria**: estado module-scoped, una vez por carga de página, en memoria; **sin storage**. El diseño lo describe en `homeExperience.ts`; en este repo vive en `deviceTilt.ts` creado una vez por carga (misma semántica).
-- **Android** (`requestPermission` no es función): `auto`, sin UI; se arma al completar la entrada, sin llamada de permiso.
-- **Reduced motion**: `createDeviceTilt` devuelve `null` (el init entero sale antes): nunca llama, nunca escucha, el label nunca se muestra.
-- **Label**: se muestra solo en `denied` y con la entrada completa (si la denegación resuelve después de la entrada, se muestra de inmediato; si resuelve antes, se muestra al llamar `arm()`). Solo JS alterna `hidden`; el SSR nace `hidden`.
+- **Intento de carga**: al crear el módulo (tras capacidad + gate + reduced) llamar `requestPermission()` **una sola vez**. iOS rechaza `NotAllowedError` (sin activación) → `pending`; Chromium ≥151 puede resolver `'prompt'`/desconocido sin diálogo → `prompt-unknown`. Los no finales **nunca** son terminales ni denegación (F1).
+- **Retry v7 — solo interacciones de activación (RC-1)**: tras cualquier resultado no final, armar listeners pasivos y auto-removentes en exactamente `touchend`, `pointerup`, `click`, `mousedown`, `keydown`, y `pointerdown` **solo si `event.pointerType === 'mouse'`**. **No** escuchar `touchstart`, `wheel` ni `scroll` (no cualifican activación; consumirían intentos sin prompt). Al dispararse: remover todos, llamar `requestPermission()` una vez, y si el resultado es no final re-armar mientras `attempts < 5`.
+- **Intentos y terminación**: `attempts` cuenta **cada** llamada, incluida la de carga; cap **5 por carga de página** (decisión del lead). El pipeline solo termina en: `denied` resuelto (→ label), `unsupported`, reduced motion, o cap. Los no finales no muestran UI: el único resultado visible es el label de denegación.
+- **Attach optimista (RC-2)**: tras el **primer** resultado no final, adjuntar el listener `deviceorientation` único (sin UI). iOS queda inerte pre-grant; Chromium revive el parallax en cuanto la plataforma entrega eventos. **Un solo listener en toda la vida** (init/auto, optimista o grant: el primero gana). Las muestras alimentan movimiento solo con la entrada completa y `!released && !paused`. Un `denied` posterior **desmonta** el listener, pone offsets a 0 y muestra el label; un `granted` posterior conserva el listener y, si no hay baseline, lo captura.
+- **Tras denegación resuelta**: sin reintento en la misma carga; la próxima carga repite el intento de carga (interpretación de “la próxima oportunidad”, §5 supuesto 9).
+- **Memoria**: estado module-scoped, una vez por carga, en memoria; **sin storage**.
+- **Android** (`requestPermission` no es función): `auto`, sin UI; listener adjunto en init y movimiento tras la entrada, sin llamada de permiso.
+- **Reduced motion**: `createDeviceTilt` devuelve `null`: nunca llama, nunca escucha, label nunca visible.
+- **Label**: solo en `denied` + entrada completa (si la denegación resuelve después de la entrada, se muestra de inmediato; si resuelve antes, se muestra al llamar `arm()`). Solo JS alterna `hidden`; el SSR nace `hidden`.
+- **Gate v7 (§1.1.2)**: `(pointer: coarse)` **y** `Math.min(innerWidth, innerHeight) ≤ 800`. Incluye teléfonos rotados a landscape (p. ej. 844×390 → 390) y tablets chicas (iPad mini 744×1133); excluye tablets grandes (iPad Pro 11″ 834×1194, iPad 10.9″ 820×1180). El contrato de no-oclusión sigue verificado en portrait; landscape queda fuera (nota vigente).
 
 **Pipeline de sensores**
 
 - Evento único: `deviceorientation` (nunca `deviceorientationabsolute` ni `webkitCompassHeading`; `requestPermission(true)`/`absolute: true` quedan descartados porque pedirían magnetómetro en iOS).
 - Ejes: `beta` = inclinación adelante/atrás; `gamma` = inclinación izquierda/derecha (positivo = lado derecho abajo). `alpha` sin uso.
 - Mapeo: `dx = gamma − gamma0` → **x**; `dy = beta − beta0` → **y** (el contenido sigue la inclinación).
-- Baseline: media de las **primeras 8 muestras válidas** (≤ 320 ms) → `beta0`, `gamma0`; se recaptura al reanudar (visibilidad/orientación/vuelta al tope de scroll).
+- Baseline: media de las **primeras 8 muestras válidas** (≤ 320 ms) → `beta0`, `gamma0`; una sola vez, con el movimiento habilitado (entrada completa) y sin re-baseline si ya existe (supuesto 16); se recaptura al reanudar (visibilidad/orientación/vuelta al tope de scroll).
 - Normalización por eje: `n = clamp((|d| ≤ 1.5 ? 0 : d) / 25, −1, 1)` (deadzone 1.5°, fondo de escala ±25°).
 - Low-pass: EMA `s = s + 0.2 * (n − s)` por evento (α = 0.2, ~80 ms; eventos ~60 Hz).
 - Amplitudes (D8/D21, **v5**):
@@ -479,9 +489,9 @@ export function createDeviceTilt(
   - `IntersectionObserver` sobre `[data-experience-intro]`: fuera de viewport → liberar offsets a 0 e ignorar muestras; al volver → re-baseline y reanudar.
   - `visibilitychange`: `document.hidden` → igual pausa; visible → re-baseline.
   - Cambio de orientación (`screen.orientation` `'change'` u `orientationchange`): re-baseline.
-- Start (D7): el listener `deviceorientation` se adjunta solo cuando `arm()` (entrada completa) y el estado es `granted`/`auto`; un grant a mitad de la intro arma al completar. Hasta entonces no hay listener.
+- Movimiento habilitado: con la entrada completa (`arm()`) y el listener adjunto (por `granted`, `auto` u **optimista**); las muestras pre-entrada solo marcan `optimistic`, no mueven ni fijan baseline.
 - **F2/D11/D20**: `setReleased(true)` pone todos los setters a 0 y bloquea muestras; `setReleased(false)` re-arma. El cruce de `0.003` lo detecta `homeExperience` en el `onUpdate` del `introTl`.
-- Cleanup: remover los listeners de gesto si siguen armados (si dispararon, ya se auto-removieron), `deviceorientation`, listeners de orientación y `visibilitychange`, `disconnect()` del observer, cancelar timer pendiente, matar tweens y poner offsets a 0.
+- Cleanup: remover los listeners de activación si siguen armados (si dispararon, ya se auto-removieron), el `deviceorientation` (incluido el optimista), listeners de orientación y `visibilitychange`, `disconnect()` del observer, cancelar timer pendiente, matar tweens y poner offsets a 0.
 - Privacidad: sin terceros, sin red; el stream se procesa en página.
 
 #### 7.3.3 Deriva de scroll (dentro del `introTl` existente, sin tercer ScrollTrigger)
@@ -563,7 +573,7 @@ introTl.to(
 ### 7.4 Permission UX + a11y (v5 — DESIGN_SPEC §1.1/§1.1.1)
 
 - **Sin controles**: no hay botón, ni elemento enfocable, ni `[data-experience-tilt-ask]` en ninguna parte. El OS dialog (iOS) es la única superficie de consentimiento.
-- **Pipeline**: intento de carga automático + retry one-shot por gesto (§7.3.2). El usuario nunca toca un control nuestro.
+- **Pipeline**: intento de carga automático + retry sobre **interacciones de activación** con cap de 5 intentos y attach optimista (§7.3.2, v7). El usuario nunca toca un control nuestro.
 - **Label de denegación** (único UI, no interactivo):
   - Semántica: `<p class="experience-tilt" data-experience-tilt role="status" hidden>`; `pointer-events: none`; sin `tabindex`; el texto se anuncia por `aria-live` implícito de `role="status"` (polite).
   - Copy exacto (ES): título **“Viví la experiencia completa”** (uppercase por CSS, `.62rem`, tracking `.18em`, cream) + hint **“Habilitá el acceso a movimiento y orientación en Ajustes › Safari y volvé a entrar.”** (`.58rem`, stone al 80 %). El hint es deliberado: iOS no re-muestra el prompt solo, así que la recuperación honesta es Ajustes + recargar; el label no debe sugerir “tocar para arreglar”.
@@ -638,7 +648,7 @@ Fallback font (Times New Roman forzada): mínimo box 19.4 px / ink 16.7 px → p
 - **Timelines con ScrollTrigger**: exactamente 2 (grep `scrollTrigger:` en `homeExperience.ts` → 2). El cielo no agrega.
 - **Propiedades animadas nuevas**: `transform` (`x`, `y`, `rotation`, `xPercent`, `yPercent`, `scale`) y `opacity` únicamente.
 - **Loops**: 0 `rAF` propios; todo corre en el ticker de GSAP existente.
-- **Listeners**: 1 `pointermove` (desktop), 1 `deviceorientation` (mobile, solo tras armar), 1 `visibilitychange`, 1 `IntersectionObserver`, 1 listener de orientación, y hasta 5 listeners de gesto **transitorios** del retry one-shot (se auto-remueven al primer gesto o en cleanup); todos pasivos. El twinkle es CSS.
+- **Listeners**: 1 `pointermove` (desktop), **1 `deviceorientation` como máximo en toda la vida** (init/auto, optimista o grant — el primero gana), 1 `visibilitychange`, 1 `IntersectionObserver`, 1 listener de orientación, y hasta 6 listeners de **activación** transitorios del retry v7 (`touchend`/`pointerup`/`click`/`mousedown`/`keydown`/`pointerdown` mouse) que se auto-remueven por intento o en cleanup; todos pasivos. El twinkle es CSS.
 - **DOM**: ≈ 176 nodos del cielo (150 círculos + 11 chispas + contenedores) + 2 del label (`__title`, `__hint` dentro de un `<p>`) + 1 nodo dock vacío, SSR; mobile oculta 75 círculos y 3 chispas por CSS (siguen en DOM). Por frame: 2 transforms de capas del cielo + transform del reloj + opacidades + ≤ 3 twinkles; todo compuesto. **v6 quita** el tween de opacidad/scale del viewport del film, así que no se anima ninguna capa extra.
 - **Overlay del film**: transición CSS de `opacity` 0.4 s, disparada una sola vez por `data-video-ready` cuando el video real tenga metadatos; sin costo por frame.
 - **Red**: el SVG de máscara se pide on-demand (CSS), **no** se preloadea; `reloj.png` conserva `fetchpriority="high"` y debe seguir siendo el LCP (verificación manual).
@@ -653,7 +663,7 @@ Edición mínima de `docs/NODO — Home Experience - Fase 01.md`:
 1. **§12**: párrafo nuevo: capa `.experience-sky` decorativa (polvo + chispas, DOM/SVG, sin canvas ni assets nuevos) que se desvanece con el velo (35–65 %).
 2. **§17**: valores aprobados (desktop `clamp(18rem, 40vw, 42rem)` + `max-width: calc(40svh * (1672/941))`; mobile `min(80vw, 24rem)` + `max-width: calc(32svh * (1672/941))`) con nota de que forman parte del contrato de no-oclusión.
 3. **§22, bloque 15–40 %**: reemplazar el ejemplo de salida por la salida lateral aprobada (`xPercent ∓120`, 15→40, sin stagger, sin fade) y aclarar que el ejemplo anterior queda superseded por decisión explícita del usuario (2026-09-10).
-4. **§22 (nota de upgrade)**: breve párrafo sobre tilt de puntero/gyro, **pipeline automático de permiso (sin controles) y label de denegación “Viví la experiencia completa”**, la continuidad v6 y el aterrizaje del reloj, con puntero a `docs/design/experience-intro/DESIGN_SPEC.md` y a este spec. **Corrección puntual obligatoria**: la nota v4 ya escrita en el working tree (§22, “Nota de upgrade v4 (cielo + tilt)”) menciona “con control de permiso «Activar movimiento» en iOS”; reemplazar esa frase por “con pipeline automático de permiso (sin controles) y label de denegación en iOS”.
+4. **§22 (nota de upgrade)**: breve párrafo sobre tilt de puntero/gyro, **pipeline automático de permiso (sin controles; retry por interacciones de activación con cap de 5 intentos) y label de denegación “Viví la experiencia completa”**, la continuidad v6 y el aterrizaje del reloj, con puntero a `docs/design/experience-intro/DESIGN_SPEC.md` y a este spec. **Corrección puntual obligatoria**: la nota v4 ya escrita en el working tree (§22, “Nota de upgrade v4 (cielo + tilt)”) menciona “con control de permiso «Activar movimiento» en iOS”; reemplazar esa frase por “con pipeline automático de permiso (sin controles) y label de denegación en iOS”.
 5. **§22 (línea “El reloj desaparece”, ~línea 867)**: agregar la nota de supersesión v6 — el reloj ya no se disuelve; aterriza en el dock (55–85 %) y queda visible y nítido al 100 %. Las ventanas de §22 (20–55 transform, 55–85 landing) se preservan; solo cambia el contenido de 55–85.
 6. **§53 (“Estado conceptual final de la secuencia”, “[reloj desaparece]”)**: misma supersesión — el estado final es “el reloj aterriza en el dock y permanece visible”, no “desaparece”.
 7. **§56 (criterios visuales / continuidad espacial)**: agregar la referencia de que el criterio de continuidad ahora se cumple con la alineación de fondos de v6 (film fallback = stack del velo; delta de píxel ≤ 2/canal en el muestreo), con puntero a DESIGN_SPEC §13.1.
@@ -727,9 +737,13 @@ Edición mínima de `docs/NODO — Home Experience - Fase 01.md`:
 | Valores por punto de `r`/`opacity`/`tone` | `particles.json` trae solo `[x,y]`; el design difiere “particle specs” a v2 | Reconstrucción determinista D2/§7.2.2 (rangos y conteos de los artefactos); si aparece el generador, transcribir. |
 | Tabla de chispas por índice | Handoff previo vs `DESIGN_SPEC.md` §5 (solo rangos) | **RESUELTA**: `sparks.json` es la fuente única (D18/§7.2.3). La spec previa tenía valores inventados que se corrigen: halo `inset:-150%`/`rgb(228 199 122/.26)`, twinkle `8s cubic-bezier(.45,0,.55,1)`, ocultamiento mobile `[3,9,11]` (no `[9,10,11]`), y `#5` sin `animation-delay`. |
 | Fila `unsupported` de §1.1 incluye “no requestPermission`” | DESIGN_SPEC §1.1 vs §1.1 (android-auto) | Resuelto: `unsupported` = sin `DeviceOrientationEvent`; Android = evento sin `requestPermission` → auto-start (supuesto 4). |
-| Ask v3 (botón) vs requisito del usuario (v5) | `DESIGN_SPEC.md` v3 vs v5 §1.1/§1.1.1 | **Superseded**: sin botones. Pipeline automático + retry one-shot por gesto; único UI = label de denegación no interactivo. |
+| Ask v3 (botón) vs requisito del usuario (v5) | `DESIGN_SPEC.md` v3 vs v5 §1.1/§1.1.1 | **Superseded**: sin botones. Pipeline automático + retry por interacciones de activación (v7); único UI = label de denegación no interactivo. |
 | Nombre/markup del control | v3 (`__ask`/`__note`/`__status`) vs spec previa (`experience-intro__consent`) vs v5 | Adoptar v5: `experience-tilt` + `data-experience-tilt` con `__title`/`__hint`; sin botón, sin `aria-busy` y sin nodo de estado separado (el `role="status"` es el propio label). Copy: “Viví la experiencia completa” + hint de Ajustes. |
-| F1 — resultados no finales de `requestPermission()` | v4 spec mapeaba `prompt` como estado propio y los rechazos como `denied` | v5 manda: `'prompt'`/`'default'`/`undefined`/desconocido/rechazo no-final = retryable (`pending`/`prompt-unknown`); **nunca** label ni copy de error; solo `'denied'` resuelto deniega. |
+| F1 — resultados no finales de `requestPermission()` | v4 spec mapeaba `prompt` como estado propio y los rechazos como `denied`; v5 hacía one-shot | v5+v7 mandan: `'prompt'`/`'default'`/`undefined`/desconocido/rechazo no-final = retryable (`pending`/`prompt-unknown`); **nunca** label ni copy de error; re-arme por interacción de activación hasta el cap de 5; solo `'denied'` resuelto deniega. |
+| RC-1 — retry consumido por eventos sin activación | v5 (`pointerdown`/`touchstart`/`wheel`/`scroll`) vs v7 §1.1 | v7 manda: solo `touchend`/`pointerup`/`click`/`mousedown`/`keydown` + `pointerdown` mouse; los táctiles-no-activación no consumen intentos; **cap 5** (decisión del lead). |
+| RC-2 — Chromium ≥151 `'prompt'` sin diálogo | v5 (dos no-finales → terminal silencioso) vs v7 §1.1 | v7 manda: attach optimista del listener tras el primer no-final; los no-finales nunca son terminales; cap 5; `denied` posterior desmonta y muestra label. |
+| Gate de entrada | v5 `innerWidth ≤ 800` vs v7 §1.1.2 | v7 manda: `Math.min(innerWidth, innerHeight) ≤ 800` (teléfonos landscape entran; tablets grandes fuera). La G9 del design (“width > 800”) se reconcilia con §1.1.2. |
+| Proyecto de test WebKit | v5 “Chromium only” vs v7 §8/lead | Lead aprueba proyecto `webkit-tilt` acotado (`@webkit`, `grep`/`grepInvert`) dentro de `pnpm test:e2e`; Playwright ya trae WebKit (sin dep nueva). |
 | F2 — release por umbral | v4 spec liberaba en el próximo evento de input | v5 manda: `setReleased(true/false)` invocado desde el `onUpdate` del `introTl` en el cruce de 0.003, sin input; los eventos solo se ignoran mientras `released`. |
 | Amplitudes de estrellas | v4 spec `/50`–`/65`, 30/23 % | v5 manda: puntero sparks `/32`+rot `/2000`, dust `/40`+rot `/2600`; gyro sparks 48 %+rot 0.45°, dust 36 %+rot 0.34°. **Reloj intacto** (contrato de no-oclusión sin cambios). |
 | Re-arm del release | Design §1.4/§6 (“re-armed below 0.003”) vs supuesto previo `<0.001` | Adoptar umbral único 0.003 del design; se elimina el 0.001 inventado. |
@@ -756,8 +770,12 @@ Edición mínima de `docs/NODO — Home Experience - Fase 01.md`:
 | Flakiness del test de no-oclusión por Lenis/scrub | Media | Medio | `expect.poll` con estabilidad de rects; sin snapshots; tolerancia 0.5 px; estados acotados. |
 | Colisión de propiedades GSAP (entrada/scrub vs input) | Baja | Medio | Tilt sobre `img`, scrub sobre el div; capas con propiedades disjuntas; release por cruce (F2). |
 | El label de denegación se muestra en un caso no previsto | Baja | Medio | Gate por estado (§7.3.2) + `hidden` SSR + tests por estado (desktop/Android/`'prompt'`/reject/denied/granted). |
-| El retry one-shot se consume en un evento sin activación transitoria (p. ej. `scroll` en iOS) | Baja | Medio | En un gesto táctil real `pointerdown`/`touchstart` preceden a `scroll`, así que el primer evento es de activación; QA manual en iPhone debe confirmar el orden y, si no, reordenar la lista de eventos (cambio acotado, sin reabrir diseño). |
-| Fuga de listeners del retry por gesto | Baja | Bajo | Auto-remoción de los cinco listeners al primer evento + remoción en cleanup; test de conteo de listeners. |
+| El retry se consume en un evento sin activación transitoria | **Resuelto en v7** | — | La lista v7 solo escucha eventos que cualifican activación (RC-1) + cap 5; el caso queda cubierto por los tests `@webkit`. |
+| Fuga de listeners del retry | Baja | Bajo | Auto-remoción por intento + remoción en cleanup; invariante de listener único y conteo en tests. |
+| El cap de 5 se alcanza sin prompt en un engine que devuelve no-finales | Baja | Medio | Política aprobada (decisión del lead): sin UI en no-finales; el attach optimista mantiene vivo el parallax si la plataforma entrega eventos; tests RC-2 verifican que no hay terminal silencioso antes del cap. |
+| Parallax visible sin consentimiento resuelto en Chromium (attach optimista) | Media | Bajo | Es intencional (RC-2): la plataforma ya entrega eventos; no hay dato personal ni red; un `denied` posterior desmonta y muestra el label. |
+| CI sin binarios de WebKit / costo del proyecto `webkit-tilt` | Media | Medio | `pnpm exec playwright install webkit` documentado como prerequisito; proyecto acotado con `grep`/`grepInvert` (solo casos `@webkit`), no la suite completa. |
+| Gate por lado corto incluye teléfonos landscape (layout desktop) | Baja | Bajo | Landscape ya está fuera del contrato de no-oclusión; el presupuesto vertical ±14 px es la protección; QA en device. |
 | Twinkle vs reduce (animación residual) | Baja | Bajo | Keyframes dentro de `@media (prefers-reduced-motion: no-preference)`; test de computed style. |
 | Cambios de geometría rompen el overflow existente | Baja | Medio | El clip del viewport contiene `xPercent ±120`; correr la suite completa. |
 | El muestreo de píxeles de continuidad es flaky (perfil de color, antialias, frame a mitad de fade) | Media | Medio | C1 por computed styles es la aserción primaria; C2 (píxel 1×1, ≤2/canal) es secundaria con espera de estabilidad y viewport fijo; correr en Chromium con `--force-color-profile=srgb` si hiciera falta. |
@@ -770,12 +788,13 @@ Edición mínima de `docs/NODO — Home Experience - Fase 01.md`:
 ## 10. Open questions
 
 1. **RESUELTAS — inputs de diseño**: los cuatro artefactos (`DESIGN_SPEC.md`, `particles.json`, `clock-bbox.json`, `sparks.json`) están en repo y verificados por hash. No quedan bloqueantes.
-2. **No bloqueantes del design (defaults adoptados, §5 supuesto 6)**: pacing del exit en portrait (ventana única de 25), sin fade residual, tablets > 800 px sin tilt.
+2. **No bloqueantes del design (defaults adoptados, §5 supuesto 6)**: pacing del exit en portrait (ventana única de 25), sin fade residual, tablets con lado corto > 800 px sin tilt.
 3. **Decisiones documentadas (no son preguntas)**:
    - `sparks.json` codifica `twinkleDelaySec: null` en el índice 5 porque la fuente no declara `animation-delay`; el CSS no debe emitir la propiedad (default 0 s). Es intencional y no se rellena.
-   - v5 no reintenta dentro de la misma carga tras una denegación resuelta; “la próxima oportunidad” = próxima carga de página (el intento de carga se repite). El label indica Ajustes + volver a entrar, que es la única vía real en iOS.
-   - El retry por gesto es **one-shot**: un segundo resultado no final termina el pipeline en silencio (sin label, sin más llamadas). Si en QA real el primer gesto no es de activación, se reordena la lista de eventos (cambio acotado).
+   - Tras una denegación resuelta no hay reintento en la misma carga; “la próxima oportunidad” = próxima carga de página (el intento de carga se repite). El label indica Ajustes + volver a entrar, que es la única vía real en iOS.
+   - **v7**: el retry re-arma en cada interacción de activación con **cap de 5 intentos por carga** (decisión del lead); los no finales nunca son terminales ni muestran UI; el attach optimista mantiene un único listener de motion; la terminación silenciosa solo llega con el cap (sin label).
    - **v6 drink**: el asset no existe; el dock queda vacío y el swap es una tarea futura con el contrato de §7.10 (no bloquea nada).
+   - **v7 WebKit**: proyecto de test acotado por `@webkit` (D27/§13.5); decisión del lead, costo CI bounded.
    - **v6 video futuro**: cuando llegue el video real, revisar el gating del overlay (hoy `opacity: 0` sin video) y el backdrop del film; el stack de continuidad queda como default (DESIGN_SPEC §13.1/§13.5).
 
 No hay preguntas bloqueantes. `check-mock.mjs` y `check-index.mjs` no son necesarios para implementar (sus resultados ya están volcados en DESIGN_SPEC §3/§12 y en `sparks.json`), pero serían útiles como oráculo del polvo y de la matriz de no-oclusión.
@@ -851,12 +870,12 @@ Convención: cada tarea indica objetivo, archivos, dependencias, done-when y val
   - Depende: T1.1–T1.3.
   - Done-when: guardas fine/>800; divisores/duraciones exactos de §7.3.1; un listener pasivo; `setReleased(true)` deja los tres targets en `translate(0px, 0px)` y bloquea updates; `setReleased(false)` re-arma; cleanup en `disposers`.
   - Validación: e2e pointer/amplitudes/F2 (T5.2); inspección.
-- **T3.4 Módulo device tilt (pipeline automático v5 + label; reemplaza la lógica v4 si existe)**
-  - Objetivo: crear/reescribir `src/lib/motion/deviceTilt.ts` según §7.3.2/§7.4: intento de carga único, retry one-shot por gesto, F1, estados v5, `arm()` en `entry.onComplete`, label en `denied`, amplitudes v5 (48 %/36 %, rot 0.45°/0.34°), `setReleased(boolean)`, pausa/re-baseline y cleanup; montarlo en `homeExperience` con `label: { root }` cuando exista. Si el working tree ya tiene la versión v4 (estados `undecided`/`granted con click`/`denied por cualquier error`, UI de ask, `getProgress`), **reemplazarla**, no convivir con ella.
+- **T3.4 Módulo device tilt (política v7 completa; reemplaza cualquier lógica v4/v5 previa)**
+  - Objetivo: crear/reescribir `src/lib/motion/deviceTilt.ts` según §7.3.2/§7.4: gate por lado corto, intento de carga único, **retry solo en interacciones de activación** (`touchend`/`pointerup`/`click`/`mousedown`/`keydown`/`pointerdown` mouse) con **cap 5 por carga**, **attach optimista** tras el primer no-final, listener de motion único (invariante), `denied` desmonta + offsets 0 + label, `granted` conserva y baselina, `arm()` en `entry.onComplete`, amplitudes v5 (48 %/36 %, rot 0.45°/0.34°), `setReleased(boolean)`, pausa/re-baseline y cleanup; montarlo en `homeExperience` con `label: { root }` cuando exista.
   - Archivos: `src/lib/motion/deviceTilt.ts` (nuevo/modificado), `src/lib/motion/homeExperience.ts`.
   - Depende: T1.4.
-  - Done-when: una sola llamada de carga sin input; retry one-shot con auto-remoción; no-final nunca deniega ni muestra label (F1); Android sin UI; label solo en `denied` + entrada completa; pipeline de sensores exacto (8 muestras ≤320 ms, ±25°, deadzone 1.5°, clamp, EMA 0.2); cleanup completo (incluye listeners de gesto si no dispararon y offsets a 0).
-  - Validación: e2e de estados/retry/label (T5.3); QA manual (T6.2).
+  - Done-when: **una** llamada de carga sin input; cada interacción de activación dispara exactamente **una** llamada y los listeners se auto-remueven; `touchstart`/`wheel`/`scroll`/`pointerdown` táctil **no** disparan; no-final nunca deniega ni muestra label y re-arma hasta 5; tras el cap no hay más llamadas ni label; `granted`/`auto` adjuntan **un solo** listener; optimista adjunta tras el primer no-final y mueve solo con entrada completa; `denied` desmonta, offsets 0 y label; Android sin UI; pipeline de sensores exacto (8 muestras ≤320 ms, ±25°, deadzone 1.5°, clamp, EMA 0.2); cleanup completo.
+  - Validación: e2e de estados/RC-1/RC-2/optimista (T5.3/T5.7); QA manual (T6.2).
 - **T3.5 Hook F2 en `homeExperience.ts` `onUpdate`**
   - Objetivo: en el `onUpdate` del `introTl`, comparar `self.progress > 0.003` contra el estado previo; en el cruce llamar `setReleased(true)` en los handles de pointer y gyro (setters a 0 y bloqueo de input) y `setReleased(false)` al cruzar hacia abajo; sin esperar eventos de input.
   - Archivos: `src/lib/motion/homeExperience.ts`.
@@ -902,8 +921,8 @@ Convención: cada tarea indica objetivo, archivos, dependencias, done-when y val
   - Objetivo: asertar amplitudes v5 en esquinas y centro (`S1`: sparks ≈ ±22.5 px y rot ≈ 0.36° a 1440; dust ≈ ±18.0 px y rot ≈ 0.28°), `setReleased` por cruce **sin input** con `translate(0px, 0px)` exacto y re-armado tras volver a 0 (F2); salida con `tx < 0` / `tx > 0`, opacidad 1 en 15–40 % (E1–E3); deriva del cielo en 0–75 %; reversibilidad; overflow ≤ 0 en t 0.20/0.30/0.40 (E5).
   - Depende: T3.1–T3.3, T3.5.
   - Validación: `pnpm test:e2e`.
-- **T5.3 Permission pipeline automático + label + gyro v5**
-  - Objetivo: contexts mobile con `addInitScript` por estado: `granted`/`denied` (`Promise.resolve`), no-final `'prompt'` (F1) y rechazo (`NotAllowedError`), ausente (Android) y sin `DeviceOrientationEvent`; espía `window.__calls` para: **una** llamada de carga sin input, **una** llamada extra en el primer gesto, auto-remoción de los cinco listeners, segunda falla sin más llamadas; no-button/focusable; label solo en `denied` + entrada completa con copy exacto y `pointer-events:none`; eventos sintéticos de `DeviceOrientationEvent` (baseline 8, deadzone, clamp, `S2`: sparks 11.52 px / dust 8.64 px a 390, 10.71/8.04 a 360); orientación con `Object.defineProperty(screen.orientation, 'angle', …)`; `requestPermission` nunca llamado en reduced motion; F2 con gyro (`setReleased` sin input).
+- **T5.3 Permission pipeline v7 + label + gyro v5**
+  - Objetivo: contexts mobile (Chromium) con `addInitScript` por estado: `granted`/`denied` (`Promise.resolve`), no-final `'prompt'` (RC-2), rechazo (`NotAllowedError`), ausente (Android) y sin `DeviceOrientationEvent`; espía `window.__calls` para: **una** llamada de carga sin input, **una** llamada por interacción de activación, **5 llamadas máximo** (carga + 4 interacciones) con no-finales repetidos, **sin terminal silencioso antes del cap** y **sin más llamadas tras el cap**; no-button/focusable; label solo en `denied` + entrada completa con copy exacto y `pointer-events:none`; **attach optimista** (muestras pre-grant → movimiento tras la entrada, sin label, sin llamada extra; `denied` posterior desmonta y muestra label); **invariante de listener único** (conteo add/remove de `deviceorientation`); **gate** (844×390 incluido, 834×1194 excluido); eventos sintéticos de `DeviceOrientationEvent` (baseline 8, deadzone, clamp, `S2`: sparks 11.52 px / dust 8.64 px a 390, 10.71/8.04 a 360); orientación con `Object.defineProperty(screen.orientation, 'angle', …)`; `requestPermission` nunca llamado en reduced motion; F2 con gyro (`setReleased` sin input).
   - Depende: T3.4, T3.5.
   - Validación: `pnpm test:e2e`; QA real (T6.2).
 - **T5.4 No-oclusión (incluye landing v6)**
@@ -918,6 +937,12 @@ Convención: cada tarea indica objetivo, archivos, dependencias, done-when y val
   - Objetivo: assert `[data-experience-dock]` decorativo (`aria-hidden`, `pointer-events: none`, sin foco, sin overflow); en 0.85/1.0 centro visible del reloj = centro del dock (±2 px), `scale ≈ 0.32/0.30`, alto visible = `0.5407 × elementWidth × scale` (±5 px), `opacity 1`, `filter none`, convergencia monótona desde 0.55; paint order `veil < sky < title < clock < dock < hint < tilt`.
   - Depende: T1.5, T3.6.
   - Validación: `pnpm test:e2e`.
+- **T5.7 Proyecto WebKit acotado (RC-1) + config de proyectos**
+  - Objetivo: en `playwright.config.ts`, agregar el proyecto `webkit-tilt` (`devices['iPhone 13']`, `grep: /@webkit/`) y `grepInvert: /@webkit/` al proyecto `chromium`; en `home-experience-sky-tilt.spec.ts`, marcar `@webkit` los casos de semántica táctil y agregar: RC-1 positivo (`touchend`/`pointerup`/`click`/`mousedown`/`keydown`/`pointerdown` mouse → 1 llamada c/u y auto-remoción), RC-1 negativo (`touchstart`/`wheel`/`scroll`/`pointerdown` táctil → 0 llamadas) y la matriz rápida del predicado puro `isActivationQualifyingEvent` importado desde `deviceTilt.ts` en el contexto Node del test.
+  - Archivos: `playwright.config.ts`, `tests/e2e/home-experience-sky-tilt.spec.ts`, `src/lib/motion/deviceTilt.ts` (export del predicado).
+  - Depende: T3.4.
+  - Done-when: `pnpm exec playwright install webkit` documentado; `pnpm test:e2e` ejecuta Chromium (sin `@webkit`) + WebKit (solo `@webkit`) sin duplicar la suite; los casos RC-1 pasan en WebKit; los negativos no llaman.
+  - Validación: `pnpm test:e2e`; conteo de tests con `pnpm exec playwright test --list --project=webkit-tilt`.
 
 ### F6 — Validación y QA
 
@@ -935,7 +960,7 @@ Convención: cada tarea indica objetivo, archivos, dependencias, done-when y val
 
 ## 12. Criterios de aceptación
 
-Cada grupo es verificable por comando, test o inspección. Las etiquetas G1–G9/S1/S2/F2/E1–E5 (v5/v4) y C1–C7 (v6) son las del design (trazabilidad).
+Cada grupo es verificable por comando, test o inspección. Las etiquetas G1–G11/S1/S2/F2/E1–E5 (v7/v5/v4) y C1–C7 (v6) son las del design (trazabilidad); G3′/G4′ reemplazan a G3/G4 de v5.
 
 **A. Estructura y a11y**
 
@@ -945,8 +970,8 @@ Cada grupo es verificable por comando, test o inspección. Las etiquetas G1–G9
 4. Sin `style=""` ni `set:html` en lo nuevo; sin `is:inline` (grep + inspección).
 5. **G1 — sin control interactivo**: no hay `<button>`, ni `[data-experience-tilt-ask]`, ni elementos con `tabindex >= 0` en el intro; el único DOM de tilt es el label `<p role="status" hidden>` con `pointer-events: none`, sin foco. Copy exacto: “Viví la experiencia completa” + “Habilitá el acceso a movimiento y orientación en Ajustes › Safari y volvé a entrar.”
 6. **G2 — intento de carga automático**: con `requestPermission` presente, init lo llama exactamente una vez sin interacción; sin la API (Android) → estado `auto`, movimiento armado tras la entrada, sin llamada y sin UI.
-7. **G3 — F1 resultados no finales**: `'prompt'`, `'default'`, `undefined`, strings desconocidos y rechazos que no sean `'denied'` nunca producen `denied` ni label; quedan retryables y arman el retry por gesto.
-8. **G4 — retry one-shot por gesto**: el primero de `pointerdown`/`touchstart`/`wheel`/`scroll`/`keydown` dispara exactamente una llamada extra; los cinco listeners se auto-remueven; `granted` arma movimiento, `denied` muestra el label; un segundo fallo no vuelve a llamar ni muestra label.
+7. **G3′ — no final nunca terminal (v7)**: `'prompt'`, `'default'`, `undefined`, strings desconocidos y rechazos no `'denied'` nunca producen denegación ni label; cada uno **re-arma** el retry en la próxima interacción de activación hasta el **cap de 5 intentos**; el pipeline solo termina en `denied` resuelto, `unsupported`, reduced motion o cap (T5.3).
+8. **G4′ — retry por activación (v7)**: `touchend`, `pointerup`, `click`, `mousedown`, `keydown` y `pointerdown` mouse disparan exactamente **una** llamada cada uno y los listeners se auto-remueven; `touchstart`, `wheel`, `scroll` y `pointerdown` táctil disparan **ninguna** (T5.3/T5.7).
 9. **G5 — label de denegación**: solo un `'denied'` resuelto lo muestra; copy exacto, `role="status"`, `pointer-events: none`, sin focusable; oculto en reduced motion y en desktop; visible con la entrada completa (o de inmediato si la denegación resuelve después); se desvanece con el hint (0–8 %).
 
 **B. Sin JavaScript**
@@ -959,11 +984,11 @@ Cada grupo es verificable por comando, test o inspección. Las etiquetas G1–G9
 
 **D. Valores de motion**
 
-12. **G7 — arming**: el listener de sensores se adjunta solo con grant (o Android `auto`) **y** entrada completa; un grant a mitad de la intro arma al completar (T5.3).
+12. **G7 — arming**: el listener de sensores se adjunta con grant/`auto` (o por el camino **optimista** v7) y el movimiento aplica solo con la entrada completa; un grant a mitad de la intro arma al completar (v7: el optimista puede recibir muestras pre-grant; ver G10) (T5.3).
 13. Pointer + **S1**: reloj `/15` sin cambios; sparks `/32` + rot `/2000`; dust `/40` + rot `/2600`; a 1440 en la esquina → sparks ≈ ±22.5 px / 0.36°, dust ≈ ±18.0 px / 0.28° (±0.05); duraciones 1 / 1 / 1.5 s `power2.out`; un `pointermove` pasivo (T5.2 + inspección).
 14. Gyro + **S2**: baseline 8 muestras (≤320 ms); `n = clamp((|d| ≤ 1.5 ? 0 : d)/25, −1, 1)`; EMA α=0.2; reloj `min(24, 0.062·vw)` / 14 px **sin cambios**; sparks **48 %** + rot `n·0.45°`; dust **36 %** + rot `n·0.34°`; a 390 → 11.52 / 8.64 px, a 360 → 10.71 / 8.04 px (±0.05); compensación `cos/sin`; solo `deviceorientation`; un listener pasivo (T5.3 + QA).
 15. **F2 — release por cruce**: con puntero extremo y gyro a full tilt, llevar el progreso a 0.01 **sin despachar ningún input** deja clock/sparks/dust en `translate(0px, 0px)` exacto; volver a 0 y despachar de nuevo restaura los offsets; el release se invoca desde el `onUpdate` del `introTl` (cruce de 0.003), no desde los handlers de input (T5.2/T5.3).
-16. **G9 — desktop intacto**: en `(pointer: fine)` o ancho > 800 el pipeline nunca llama a `requestPermission`, nunca escucha, no hay label, y un `deviceorientation` despachado no produce transform (T5.3).
+16. **G9 — desktop/tablets grandes intactos (reconciliado con §1.1.2)**: con `(pointer: fine)` o **lado corto > 800** (tablets grandes) el pipeline nunca llama a `requestPermission`, nunca escucha, no hay label, y un `deviceorientation` despachado no produce transform (T5.3). Nota: la G9 del design dice “width > 800”; §1.1.2 la supersede con lado corto (los teléfonos landscape entran).
 17. Scrub: `dust yPercent −3` (0–65) + `scale 1.025` (0–85); `sparks yPercent −7` (0–70); `sky opacity 0` (35–65); label a `opacity 0` (0–8); **el dissolve 55–85 (`scale 0.28`/`opacity 0`/`blur`) queda reemplazado por el aterrizaje al dock (§12.29–30)**; todo dentro del `introTl`; 2 `ScrollTrigger` en total (T5.2 + grep).
 18. Salida: **E1** a 0.20/0.30 línea 1 negativa y línea 2 positiva, ambas parcialmente en pantalla; **E2** a 0.40 ambas fuera con ≥ 8 px (línea 1 derecha ≤ 0; línea 2 izquierda ≥ ancho de viewport); **E3** sin `opacity`/`letterSpacing` en 15–40 %, opacidad computada 1 (T5.2).
 19. **E5 — sin overflow durante el exit**: `scrollWidth − innerWidth ≤ 0` en t 0.20/0.30/0.40 (T5.2).
@@ -994,6 +1019,11 @@ Cada grupo es verificable por comando, test o inspección. Las etiquetas G1–G9
 32. **C6 — dock decorativo**: `[data-experience-dock]` con `aria-hidden="true"`, `pointer-events: none`, sin contenido focusable, sin overflow en ningún estado de landing; paint order incluye `dock` tras `clock` (T5.6).
 33. **C7 — contrato del asset de drink**: el contrato de §7.10 (master PNG-24 sRGB ≥960 px, AVIF/WebP/PNG, tamaños 300/600 desktop y 150/300 mobile, presupuestos, carga lazy/async/width/height/fetchpriority low/alt vacío, QA de alpha) queda documentado; **no hay markup de drink en el código** mientras el asset no exista (T4.2, spec-only).
 
+**I. Política v7 (G10/G11)**
+
+34. **G10 — attach optimista + listener único + teardown**: tras el primer resultado no final el listener `deviceorientation` se adjunta **una sola vez** (sin UI); con muestras finitas el movimiento aplica tras la entrada sin grant resuelto; un `denied` posterior lo **desmonta**, deja offsets en 0 y muestra el label; un `granted` posterior conserva el mismo listener. La invariante “exactamente un listener de motion en toda la vida” se verifica con espías de `addEventListener`/`removeEventListener` (T5.3).
+35. **G11 — gate por lado corto**: `(pointer: coarse)` y `Math.min(innerWidth, innerHeight) ≤ 800`; 844×390 (teléfono landscape) entra; 834×1194 y 820×1180 (tablets grandes) quedan fuera; reduced motion y desktop nunca inician (T5.3).
+
 ## 13. Plan de validación
 
 ### 13.1 Comandos (Windows / PowerShell / pnpm, en orden)
@@ -1004,8 +1034,11 @@ pnpm format:check    # exit 0
 pnpm check           # astro check (TS strict) exit 0
 pnpm lint            # exit 0, cero warnings
 pnpm build           # exit 0 (prerender de / y /styleguide)
-pnpm test:e2e        # smoke + home-experience + home-experience-sky-tilt en verde
+pnpm test:e2e        # smoke + home-experience + home-experience-sky-tilt en verde (Chromium + proyecto @webkit acotado)
 pnpm validate        # re-verifica check/lint/format:check/build
+
+# Prerequisito one-time (local y CI): binarios de WebKit para el proyecto @webkit
+pnpm exec playwright install webkit
 ```
 
 ### 13.2 Chequeos estáticos de invariantes
@@ -1038,8 +1071,8 @@ Select-String -Path "src\components\home\ScrollFilm.astro" -Pattern "0b201c|data
 ### 13.3 QA manual en teléfono real (evidencia obligatoria)
 
 1. **HTTPS**: servir el build en un origen HTTPS (preview de deploy). En HTTP local los sensores de iOS no funcionan: anotar el origen usado.
-2. **iOS Safari (≤ 800 px) — sin botones**: al cargar no hay UI y el intento de carga falla en silencio (no aparece prompt); en el **primer gesto** (touch/scroll) debe aparecer el prompt nativo; conceder → tilt responde; denegar → aparece el label “Viví la experiencia completa” + hint de Ajustes, sin más prompts en la carga. Verificar con VoiceOver que el label se anuncia (role=status) y que no hay elementos enfocables.
-3. **Reintento y siguiente oportunidad**: recargar tras denegar vuelve a intentar (iOS no re-muestra el prompt solo; si el usuario habilitó movimiento en Ajustes › Safari, la carga nueva debe conceder).
+2. **iOS Safari (≤ 800 px) — sin botones (v7)**: al cargar no hay UI y el intento de carga falla en silencio (no aparece prompt); en una **interacción de activación real** (toque que dispara `touchend`/`pointerup`/`click`) debe aparecer el prompt nativo (un `scroll`/`wheel`/`touchstart` **no** debe consumir intento); conceder → tilt responde; denegar → label “Viví la experiencia completa” + hint de Ajustes, sin más prompts en la carga; si el primer intento no final falla, cada toque posterior re-intenta hasta 5. Verificar con VoiceOver que el label se anuncia (role=status) y que no hay elementos enfocables.
+3. **Reintento y siguiente oportunidad**: recargar tras denegar vuelve a intentar (iOS no re-muestra el prompt solo; si el usuario habilitó movimiento en Ajustes › Safari, la carga nueva debe conceder). En **Chromium mobile ≥151**, verificar la ruta sin diálogo (`'prompt'`): el parallax puede revivir por el attach optimista sin prompt ni label (RC-2) y no debe aparecer UI.
 4. **Android Chrome (≤ 800 px)**: sin UI; el tilt funciona al completar la entrada.
 5. **Signos y orientación**: portrait y ambos landscape; inclinar a la derecha mueve el reloj de forma intuitiva; sin inversiones; sin jitter; deadzone estable en reposo.
 6. **Ciclo de vida**: background/foreground (re-baseline); scrollear fuera del intro y volver (pausa + release a 0 + re-baseline); cambio de orientación (re-baseline); sin saltos.
@@ -1049,15 +1082,16 @@ Select-String -Path "src\components\home\ScrollFilm.astro" -Pattern "0b201c|data
 
 ### 13.4 Casos e2e nuevos (archivo `tests/e2e/home-experience-sky-tilt.spec.ts`)
 
-**Impacto del delta v5/v6 sobre los casos v4 (si el developer ya los hubiera empezado, se ajustan así)**:
+**Impacto de los deltas v5/v6/v7 sobre los casos v4 (si el developer ya los hubiera empezado, se ajustan así)**:
 
-> Estado del working tree al escribir estos deltas: ya hay implementación en curso de v4/v5 (`ExperienceIntro.astro`, `homeExperience.ts`, `ScrollFilm.astro`, `src/lib/experience/`, `deviceTilt.ts`, `pointerParallax.ts`, `tests/e2e/home-experience-sky-tilt.spec.ts`, doc de producto). Las tareas se aplican como **corrección** sobre ese trabajo (retirar ask, reescribir permiso, subir amplitudes, mover release a `onUpdate`, **continuidad del film + dock/landing + supersesión de docs**), no como creación desde cero.
+> Estado del working tree al escribir estos deltas: ya hay implementación en curso de v4/v5 (`ExperienceIntro.astro`, `homeExperience.ts`, `ScrollFilm.astro`, `src/lib/experience/`, `deviceTilt.ts`, `pointerParallax.ts`, `tests/e2e/home-experience-sky-tilt.spec.ts`, doc de producto). Las tareas se aplican como **corrección** sobre ese trabajo, no como creación desde cero.
 
-- Cambian (v5): caso 3 (reduce: `requestPermission` = 0 llamadas + label `hidden`), caso 4 (divisores `/50`,`/65` → `/32`,`/40` y rotaciones `/2000`,`/2600`), caso 5 (release pasa a **F2 sin input**), caso 8 (granted deja de ser “control visible + click” y pasa a llamada automática con espía), caso 9 (denied deja de usar click y copy “Sin movimiento”; pasa a F1 + retry), caso 10 (Android sin ningún control), caso 11 (se separa G9 desktop) y el antiguo conteo de listeners pasa a ser el caso 12 ampliado.
-- Cambian (v6): el **orden de pintado** que asserta el caso 1/2 pasa de `veil < sky < title < clock < hint < tilt` a `veil < sky < title < clock < dock < hint < tilt`; el caso 13 (no-oclusión) agrega `0.85`/`1.0` con gate de on-screen y sin overflow en 55–100 %; cualquier aserción del dissolve viejo (reloj `opacity 0`/`blur` al final) se elimina — el reloj queda visible.
-- Se agregan: caso 12 (conteo/auto-remoción de listeners de retry), caso 13 (G8/E4 no-oclusión), **caso 14 (continuidad C1/C2)** y **caso 15 (dock + landing C3/C4/C6)**.
-- **Sin cambios** en `tests/e2e/home-experience.spec.ts` y `tests/e2e/smoke.spec.ts` (deben seguir verdes tal cual; no assertan el dissolve).
-- Casos 1–7 se mantienen en esencia (estructura/paridad, mobile, reduce/no-JS, S1, F2, exit, overflow), con los ajustes v5/v6 enumerados.
+- Cambian (v5): caso 3 (reduce: `requestPermission` = 0 llamadas + label `hidden`), caso 4 (divisores `/50`,`/65` → `/32`,`/40` y rotaciones `/2000`,`/2600`), caso 5 (release pasa a **F2 sin input**), caso 8 (granted deja de ser “control visible + click” y pasa a llamada automática con espía), caso 10 (Android sin ningún control), caso 11 (se separa G9 desktop).
+- Cambian (v6): el **orden de pintado** (casos 1/2) pasa a `veil < sky < title < clock < dock < hint < tilt`; el caso 13 (no-oclusión) agrega `0.85`/`1.0` con gate de on-screen y sin overflow en 55–100 %; cualquier aserción del dissolve viejo (reloj `opacity 0`/`blur` al final) se elimina — el reloj queda visible.
+- Cambian (v7): **caso 9** (G3′) deja atrás el “one-shot con terminal silencioso al segundo fallo”: ahora cada no-final re-arma y el cap es 5; **caso 10** (denied) puede resolverse en cualquier intento ≤ 5 y el teardown debe verificarse; **caso 12** pasa a verificar la **invariante de listener único** (`deviceorientation`) además del conteo de retry; cualquier caso que asumiera terminación silenciosa a los 2 intentos se elimina.
+- Se agregan: caso 12 (conteo/invariante de listeners), caso 13 (G8/E4 no-oclusión), caso 14 (continuidad C1/C2), caso 15 (dock + landing C3/C4/C6), **caso 16 (RC-1 activación `@webkit`)**, **caso 17 (RC-2 `'prompt'` repetido)**, **caso 18 (G10 attach optimista + teardown)** y **caso 19 (G11 gate por lado corto)**.
+- **Sin cambios** en `tests/e2e/home-experience.spec.ts` y `tests/e2e/smoke.spec.ts` (deben seguir verdes tal cual; no assertan el dissolve ni el permiso).
+- Casos 1–7 se mantienen en esencia (estructura/paridad, mobile, reduce/no-JS, S1, F2, exit, overflow), con los ajustes enumerados.
 
 1. **Estructura del cielo** (desktop por defecto): attrs/aria/pointer-events; 150 circles; 114/36; `r`/`o` en rango; 11 sparks con `data-spark-index`; máscara; halo; twinkle solo `[1,5,7]` con la animación del JSON; `#5` sin `animation-delay`; sin `style=""`; sin preload de máscara; **paridad completa de los 11 índices contra `sky-sparks.json`**.
 2. **Cielo mobile**: contexto `devices['iPhone 13']` → 75 circles visibles; 8 sparks visibles con `[3,9,11]` ocultos; override `#7` `left 88% / top 33%`; `--s` = `sizePxMobile` del JSON (p. ej. `#1` 12.75 px); círculos redondos (bbox ancho≈alto en un dot de muestra).
@@ -1067,67 +1101,91 @@ Select-String -Path "src\components\home\ScrollFilm.astro" -Pattern "0b201c|data
 6. **Salida lateral (E1–E3)**: a ~0.20 y ~0.30, `m41` de línea 1 < 0 y de línea 2 > 0, ambas parcialmente en pantalla; opacidad computada 1; sin `letter-spacing` inline; a ~0.40 |m41| ≥ ancho de viewport.
 7. **Overflow del exit (E5)** y **deriva del cielo**: `scrollWidth − innerWidth ≤ 0` en 0.20/0.30/0.40; a ~0.5 `yPercent`/`scale`/`opacity` en rango; a 0.65+ `sky` opacidad 0; reversibilidad al volver a 0; el label (si estuviera visible) cae con el hint a 0–8 %.
 8. **G2/G7 granted automático**: contexto mobile + `requestPermission = () => Promise.resolve('granted')` y `addInitScript` que espía `window.__calls`; assert **1 llamada sin input**; sin botón ni focusables; 8 eventos sintéticos de baseline + ~30 de estímulo → reloj con transform no nulo y acotado; sparks/dust en 48 %/36 % del reloj (S2); deadzone estable con delta < 1.5°; arming solo tras `entry` completa.
-9. **G3/F1 no-final retryable**: stubs `() => Promise.resolve('prompt')` y `() => Promise.reject(new DOMException('', 'NotAllowedError'))`; assert estado sin label, sin copy de error y con retry armado; despachar `pointerdown` → exactamente 1 llamada extra; si esa segunda también es no-final → 0 llamadas ulteriores y 0 labels; los cinco listeners de gesto se auto-removieron (conteo).
-10. **G4/G5 denied**: segundo intento (o primero, según stub) resuelve `'denied'`; tras el gesto → label visible con copy exacto (“Viví la experiencia completa” + hint con “Ajustes › Safari”), `role="status"`, `pointer-events: none`, sin `[data-experience-tilt-ask]`; gestos posteriores no vuelven a llamar ni cambian el label.
+9. **G3′ no-final nunca terminal (v7)**: stubs `() => Promise.resolve('prompt')` y `() => Promise.reject(new DOMException('', 'NotAllowedError'))`; assert estado sin label y sin copy de error tras la carga; despachar una interacción de activación (`click`) → exactamente 1 llamada extra y re-armado; repetir hasta **5 llamadas totales** (carga + 4) → sin label, sin más llamadas tras el cap; el caso RC-2 dedicado (nº 17) cubre el `'prompt'` repetido.
+10. **G4/G5 denied (v7)**: el stub resuelve `'denied'` en el intento n (≤5); tras la interacción que lo resuelve → label visible con copy exacto (“Viví la experiencia completa” + hint con “Ajustes › Safari”), `role="status"`, `pointer-events: none`, sin `[data-experience-tilt-ask]`; si hubo attach optimista, el listener se desmonta y los offsets quedan en 0; interacciones posteriores no vuelven a llamar ni cambian el label.
 11. **G1/G9 sin control y desktop**: en mobile el intro no contiene `<button>` ni elementos `tabindex >= 0`; en contexto desktop (`Desktop Chrome` por defecto) el pipeline no llama (`window.__calls` = 0), no hay label y un `deviceorientation` despachado no produce transform.
-12. **Conteo de listeners**: envolver `EventTarget.prototype.addEventListener` en `addInitScript` y exponer `window.__listenerCounts`; assert `pointermove ≤ 1`, `deviceorientation ≤ 1` por contexto, `visibilitychange ≤ 1`, `orientationchange ≤ 1`, y que los listeners de retry (`pointerdown`/`touchstart`/`wheel`/`scroll`/`keydown`) se remueven tras usarse.
+12. **Conteo + invariante de listeners**: envolver `EventTarget.prototype.addEventListener`/`removeEventListener` en `addInitScript` y exponer `window.__listenerCounts`; assert `pointermove ≤ 1`, `visibilitychange ≤ 1`, `orientationchange ≤ 1`; **`deviceorientation` exactamente 1 add en toda la vida** por contexto (init/auto, optimista o grant) y remove correspondiente en denied/cleanup; los listeners de retry v7 (`touchend`/`pointerup`/`click`/`mousedown`/`keydown`/`pointerdown` mouse) se remueven por intento o en cleanup.
 13. **G8/E4 no-oclusión (con landing v6)**: helper de §7.5; recorre progreso (incluye `0.85`/`1.0`)/puntero/`setGyro(±1,±1)` y viewports; CSS-box gap ≥ 0 e ink gap ≥ 8 px (tolerancia 0.5 px); **gate de on-screen** para líneas fuera de viewport; sin overflow en 55–100 %; el presupuesto del reloj no cambió.
 14. **Continuidad intro→film (C1/C2)**: computed stack del `.scroll-film__viewport` = computed stack del `.experience-intro__veil`; opacidad del film = 1; sin `transform` de panel; overlay `opacity: 0` sin video; **píxel 1×1** con `page.screenshot({ clip: { x, y, width: 1, height: 1 } })` en el centro a t 0.34/0.50/0.66 con delta ≤ 2/canal contra `rgb(7, 19, 17)` en los 5 presets; `scrollWidth − innerWidth ≤ 0`.
 15. **Dock + landing (C3/C4/C6)**: `[data-experience-dock]` decorativo (`aria-hidden`, `pointer-events: none`, sin foco, sin overflow); paint order con `dock` tras `clock`; a 0.85/1.0 centro visible del reloj = centro del dock (±2 px), `scale ≈ 0.32/0.30`, alto visible = `0.5407 × elementWidth × scale` (±5 px), `opacity 1`, `filter none`; convergencia monótona desde 0.55.
 
-Sensores en Playwright: primario `window.dispatchEvent(new DeviceOrientationEvent('deviceorientation', { beta, gamma }))`; orientación con `Object.defineProperty(screen.orientation, 'angle', { get: () => 90 })`; fallback CDP `DeviceOrientation.setDeviceOrientationOverride` vía `context.newCDPSession(page)`. El baseline se arma con 8 eventos idénticos; el estímulo se repite ~30 veces para que la EMA (α=0.2) converja y se assetan valores con `expect.poll`.
+16. **RC-1 activación (v7, `@webkit` + matriz Node)**: casos marcados `@webkit` que corren en el proyecto WebKit: `touchend`/`pointerup`/`click`/`mousedown`/`keydown` y `pointerdown` mouse → exactamente 1 llamada cada uno y auto-remoción; `touchstart`/`wheel`/`scroll`/`pointerdown` táctil → 0 llamadas; además la matriz rápida del predicado puro `isActivationQualifyingEvent(event)` importado desde `deviceTilt.ts` y evaluado en Node (sin engine), cubriendo ambos sentidos.
+17. **RC-2 `'prompt'` repetido (Chromium ≥151)**: stub `requestPermission = () => Promise.resolve('prompt')`; carga + 4 interacciones de activación → **5 llamadas, sin label, sin terminal silencioso antes del cap**; la 6.ª interacción no llama; el attach optimista ocurre tras el primer no-final y el movimiento con muestras aplica tras la entrada.
+18. **G10 attach optimista + teardown**: stub no-final; tras la carga, despachar `DeviceOrientationEvent('deviceorientation', {beta: 95, gamma: 12})` finito → tras la entrada el reloj se mueve (transform no nulo), **sin label y sin llamada extra**; luego cambiar el stub a `'denied'` y disparar una interacción → listener desmontado, offsets 0, label visible; `granted` posterior (stub) conserva el mismo listener (invariante caso 12).
+19. **G11 gate por lado corto**: contexto coarse con viewport 844×390 → el pipeline corre (llama una vez; con granted, el tilt aplica tras la entrada); viewport 834×1194 y 820×1180 (tablets grandes) → `window.__calls` = 0, sin label; reduced motion y desktop ya cubiertos en casos 3/11.
+
+Sensores en Playwright: primario `window.dispatchEvent(new DeviceOrientationEvent('deviceorientation', { beta, gamma }))`; orientación con `Object.defineProperty(screen.orientation, 'angle', { get: () => 90 })`; fallback CDP `DeviceOrientation.setDeviceOrientationOverride` vía `context.newCDPSession(page)` (solo Chromium; en WebKit usar dispatch sintético). El baseline se arma con 8 eventos idénticos; el estímulo se repite ~30 veces para que la EMA (α=0.2) converja y se assetan valores con `expect.poll`. Para simular activación real en WebKit: `page.tap()`/`page.click()` (producen `pointerup`/`touchend`/`click` reales); los negativos se despachan sintéticamente (`page.evaluate` con `new PointerEvent(..., { pointerType: 'touch' })` y `WheelEvent`/`scroll`).
+
+### 13.5 Proyecto WebKit acotado (`webkit-tilt`) — decisión del lead
+
+- **Definición** (`playwright.config.ts`):
+
+  ```ts
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, grepInvert: /@webkit/ },
+    { name: 'webkit-tilt', use: { ...devices['iPhone 13'] }, grep: /@webkit/ },
+  ],
+  ```
+
+- **Alcance**: solo los casos marcados `@webkit` en `home-experience-sky-tilt.spec.ts` (RC-1 y su matriz); el proyecto Chromium excluye esos casos con `grepInvert` (no hay falsos negativos de semántica táctil ni duplicación).
+- **Integración con `pnpm test:e2e`**: el script no cambia (`pnpm build && playwright test`); Playwright ejecuta Chromium (suite completa menos `@webkit`) + WebKit (solo `@webkit`). Costo CI = un engine extra + N casos acotados, no la suite entera.
+- **Prerequisito**: `pnpm exec playwright install webkit` (local y CI). Sin dependencias nuevas: WebKit viene con `@playwright/test`.
+- **Comandos útiles**: `pnpm exec playwright test --project=webkit-tilt` y `pnpm exec playwright test --list --project=webkit-tilt` (verificación del alcance).
+- **Fallback aceptado** (si el CI no puede instalar WebKit): la matriz Node del predicado (caso 16) queda como verificación mínima; el proyecto WebKit sigue siendo el requisito primario para la semántica real de eventos táctiles (DESIGN_SPEC §8).
 
 ## 14. Task Contract
 
-- **objective**: dejar implementado y verificado el upgrade del `ExperienceIntro` en su forma **v5 + v6** (cielo mixto DOM/SVG; tilt puntero/gyro con pipeline de permiso automático sin controles y label de denegación; salida lateral del título; release por cruce F2; amplitudes de estrellas v5; **continuidad intro→film por alineación exacta de fondos y overlay gateado**; **aterrizaje del reloj en el dock visible al 100 %**; contrato del drink documentado; geometría sin oclusión; doc de producto actualizado), sin dependencias nuevas y con la suite Playwright ampliada en verde.
-- **success_criteria**: §12 completa (grupos A–H), comandos de §13.1 en verde, greps de §13.2 sin hallazgos prohibidos, QA manual de §13.3 documentado, diff acotado a los archivos de Auto-Forecast.
+- **objective**: dejar implementado y verificado el upgrade del `ExperienceIntro` en su forma **v5 + v6 + v7** (cielo mixto DOM/SVG; tilt puntero/gyro con pipeline de permiso automático sin controles, **retry por interacciones de activación con cap 5 y attach optimista** y label de denegación; salida lateral; release por cruce F2; amplitudes de estrellas v5; continuidad intro→film; aterrizaje del reloj en el dock visible al 100 %; contrato del drink documentado; geometría sin oclusión; doc de producto actualizado), sin dependencias nuevas y con la suite Playwright ampliada (Chromium + **proyecto WebKit acotado**) en verde.
+- **success_criteria**: §12 completa (grupos A–I), comandos de §13.1 en verde, greps de §13.2 sin hallazgos prohibidos, QA manual de §13.3 documentado, diff acotado a los archivos de Auto-Forecast.
 - **non_goals**: §3.
 - **assumptions**: §5.
-- **open_questions**: **none (bloqueante)**. Inputs resueltos y v5/v6 incorporados; las no bloqueantes del design están adoptadas con default.
-- **accepted_tradeoffs**: (a) se reemplaza el ejemplo de §22 (aprobado) y el doc se edita de forma mínima; (b) memoria de permiso por página: tras denegar no hay reintento en la misma carga; la próxima carga vuelve a intentar (el label guía a Ajustes + recargar); (c) cruce de breakpoints en runtime no re-crea módulos (puntero re-evalúa por evento; gyro es de carga); (d) el SVG de máscara se pide on-demand; (e) `r`/`o`/`tone` del polvo se reconstruyen con regla determinista hasta tener `check-mock.mjs`; (f) landscape del tilt fuera del contrato de no-oclusión; (g) los valores de chispas se materializan en clases CSS (límite CSP) y se garantizan con la prueba de paridad contra `sparks.json`; (h) se retira el ask y la línea de privacidad de v3 (decisión explícita de v5); (i) las estrellas suben ~+60 % manteniendo el presupuesto del reloj y el contrato de no-oclusión; (j) la continuidad v6 se logra por **igualdad exacta de fondos** (sin capa puente nueva); (k) el dock queda vacío hasta que exista el drink (spec-only); (l) el overlay del film permanece oculto hasta que exista video real con metadatos.
-- **validation**: §13.1–§13.4.
+- **open_questions**: **none (bloqueante)**. Inputs resueltos; v5/v6/v7 incorporados; cap 5 y proyecto WebKit son decisiones del lead ya aprobadas.
+- **accepted_tradeoffs**: (a) se reemplaza el ejemplo de §22 (aprobado) y el doc se edita de forma mínima; (b) memoria de permiso por página: tras denegar no hay reintento en la misma carga; la próxima carga vuelve a intentar (el label guía a Ajustes + recargar); (c) cruce de breakpoints en runtime no re-crea módulos (puntero re-evalúa por evento; gyro es de carga); (d) el SVG de máscara se pide on-demand; (e) `r`/`o`/`tone` del polvo se reconstruyen con regla determinista hasta tener `check-mock.mjs`; (f) landscape fuera del contrato de no-oclusión (el gate v7 incluye teléfonos landscape); (g) los valores de chispas se materializan en clases CSS (límite CSP) con paridad; (h) se retira el ask y la línea de privacidad de v3; (i) las estrellas suben ~+60 % manteniendo el presupuesto del reloj; (j) continuidad v6 por igualdad exacta de fondos; (k) dock vacío hasta que exista el drink; (l) overlay oculto hasta video real; (m) **v7: cap de 5 intentos y terminación silenciosa al cap** (sin UI) — decisión del lead; (n) **attach optimista** puede mover el parallax sin consentimiento resuelto en Chromium ≥151 (sin datos ni red; `denied` desmonta); (o) **proyecto WebKit acotado** agrega un engine al CI a cambio de cubrir la semántica táctil real (RC-1).
+- **validation**: §13.1–§13.5.
 - **ask_abort_triggers**:
   1. Si un valor requerido no está en los artefactos, **no inventarlo** (incluido el asset de drink): detener y escalar.
   2. Si el chequeo de no-oclusión o el de continuidad fallan con los valores aprobados, detener y escalar con evidencia (rects/progreso/viewport o píxeles muestreados); no recalibrar por cuenta propia.
   3. Si el pipeline automático no puede funcionar sin reintroducir un control interactivo, detener: **nunca** volver al ask (requisito explícito del usuario).
   4. Si el landing requiere Flip, plugins GSAP nuevos, timelines adicionales o dependencias, detener (el diseño lo prohíbe explícitamente).
-  5. Si `mask`, `quickTo` o la compensación de orientación requieren una dependencia o un cambio de API global, detener.
-  6. Si aparece cualquier `style=""`/`is:inline` necesario (CSP) o se necesita tocar tokens/timeline count, detener.
-  7. Si un test sólo puede pasar con snapshots visuales, replantear con DOM/geometría/píxel 1×1 y documentar (§R5).
+  5. Si se intenta resolver RC-1/RC-2 con una dependencia nueva (p. ej. motor de test adicional fuera de Playwright) o cambiando el cap de 5 sin aprobación, detener.
+  6. Si `mask`, `quickTo` o la compensación de orientación requieren una dependencia o un cambio de API global, detener.
+  7. Si aparece cualquier `style=""`/`is:inline` necesario (CSP) o se necesita tocar tokens/timeline count, detener.
+  8. Si un test sólo puede pasar con snapshots visuales, replantear con DOM/geometría/píxel 1×1 y documentar (§R5).
 
 ## 15. Handoff packet
 
-- **current objective**: implementar el upgrade del intro (v4 + deltas v5/v6) en `feat/home-experience-intro` sin commits.
-- **decisions made**: §6 (D1–D24) y §8 (reconciliaciones).
-- **files read / to touch**: §4 y Auto-Forecast; los cuatro artefactos de diseño leídos y verificados por hash (DESIGN_SPEC v6 incluido).
-- **validation state**: no ejecutada en esta sesión (spec-only). Baseline: `6f53b0d` con los tests previos verdes. Working tree con implementación v4/v5 en curso (ver §13.4); este spec la corrige a v5+v6.
-- **blockers**: **ninguno**. T0.1 y T0.2 resueltas; v5/v6 incorporados.
-- **next action**: `developer` aplica los deltas sobre el trabajo en curso (F1 T1.4/T1.5 → F3 T3.3–T3.7 → F4 T4.1/T4.2 → F5 T5.1–T5.6) y luego ejecuta F1–F6 completos → `reviewer` sobre el diff.
+- **current objective**: implementar el upgrade del intro (v4 + deltas v5/v6/v7) en `feat/home-experience-intro` sin commits.
+- **decisions made**: §6 (D1–D27) y §8 (reconciliaciones).
+- **files read / to touch**: §4 y Auto-Forecast; los cuatro artefactos de diseño leídos y verificados por hash (DESIGN_SPEC v7 incluido).
+- **validation state**: no ejecutada en esta sesión (spec-only). Baseline: `6f53b0d` con los tests previos verdes. Working tree con implementación v4/v5 en curso (ver §13.4); este spec la corrige a v5+v6+v7.
+- **blockers**: **ninguno**. T0.1 y T0.2 resueltas; v5/v6/v7 incorporados (cap 5 y proyecto WebKit son decisiones del lead aprobadas).
+- **next action**: `developer` aplica los deltas sobre el trabajo en curso (F1 T1.4/T1.5 → F3 T3.3–T3.7 con T3.4 v7 → F4 → F5 T5.1–T5.7, incluida la config `webkit-tilt`) y luego ejecuta F1–F6 completos → `reviewer` sobre el diff.
 
 ## 16. Auto-Forecast
 
-- **estimated_scope (total, implementación completa)**: `large` (>400 líneas no mecánicas: ~180 markup+CSS cielo/label/dock, ~140 datos+materialización, ~300 módulos de motion/landing, ~120 film, ~420 tests e2e, ~60 docs).
+- **estimated_scope (total, implementación completa)**: `large` (>400 líneas no mecánicas: ~180 markup+CSS cielo/label/dock, ~140 datos+materialización, ~320 módulos de motion/landing/permiso, ~120 film, ~520 tests e2e + config de proyectos, ~60 docs).
 - **estimated_scope (delta v5)**: `medium` (~200–300 líneas sobre la base v4: pipeline de permiso + label + amplitudes + hook F2 + tests; sin archivos nuevos).
-- **estimated_scope (delta v6, esta tarea)**: `medium` (~250–350 líneas: dock node/CSS + landing tween + cambios de film/overlay + continuidad y tests C1–C3 + doc; sin archivos nuevos salvo los assets futuros del drink).
+- **estimated_scope (delta v6)**: `medium` (~250–350 líneas: dock node/CSS + landing tween + cambios de film/overlay + continuidad y tests C1–C3 + doc; sin archivos nuevos salvo los assets futuros del drink).
+- **estimated_scope (delta v7, esta tarea)**: `medium` (~250–350 líneas: reescritura de la política de permiso en `deviceTilt.ts` (eventos de activación, cap 5, attach optimista, gate), predicado puro exportado desde `deviceTilt.ts` + tests `@webkit` y casos RC-2/optimista/gate, config de proyectos en `playwright.config.ts`; sin archivos nuevos).
 - **affected_files**:
   - Nuevos: `src/lib/experience/sky.ts`, `src/lib/experience/sky-dust.json` (copia byte-identical de `docs/design/experience-intro/particles.json`), `src/lib/experience/sky-sparks.json` (copia byte-identical de `docs/design/experience-intro/sparks.json`), `src/lib/motion/pointerParallax.ts`, `src/lib/motion/deviceTilt.ts`, `tests/e2e/home-experience-sky-tilt.spec.ts`, `docs/superpowers/specs/2026-09-10-experience-intro-sky-tilt-design.md` (este documento).
-  - Modificados: `src/components/home/ExperienceIntro.astro` (dock + label), `src/lib/motion/homeExperience.ts` (landing + continuidad + inputs), `src/components/home/ScrollFilm.astro` (backdrop = velo, overlay gateado, sin scale), `docs/NODO — Home Experience - Fase 01.md`.
+  - Modificados: `src/components/home/ExperienceIntro.astro` (dock + label), `src/lib/motion/homeExperience.ts` (landing + continuidad + inputs), `src/components/home/ScrollFilm.astro` (backdrop = velo, overlay gateado, sin scale), `playwright.config.ts` (proyecto `webkit-tilt` + `grepInvert`), `docs/NODO — Home Experience - Fase 01.md`.
   - Futuros (no en este delta): `public/experience-drink.{avif,webp,png}` + `-2x` cuando exista el asset (T4.2).
   - Solo lectura: `docs/design/experience-intro/*` (no modificar).
-  - Intocables: `tokens.css`, `typography.css`, `global.css`, `package.json`, `pnpm-lock.yaml`, `astro.config.ts`, `playwright.config.ts`, `index.astro`, `home-experience.spec.ts`, `smoke.spec.ts`, core (`SeoHead`, `BaseLayout`, `SkipLink`), `public/*` (hasta el swap del drink).
+  - Intocables: `tokens.css`, `typography.css`, `global.css`, `package.json`, `pnpm-lock.yaml`, `astro.config.ts`, `index.astro`, `home-experience.spec.ts`, `smoke.spec.ts`, core (`SeoHead`, `BaseLayout`, `SkipLink`), `public/*` (hasta el swap del drink).
 - **suggested_phases**: F0 inputs → F1 cielo/dock → F2 geometría → F3 motion/continuidad → F4 docs → F5 tests → F6 validación/QA/cierre (cada fase compila por sí sola y es verificable).
 
 ## 17. Marcadores
 
-- `implementation_decisions_count`: 24 (D1–D24).
-- `testing_decisions_count`: 14 (archivo nuevo, contextos mobile, stubs de permiso por estado + F1, spy de llamadas, gesto de retry y auto-remoción de listeners, sensores sintéticos, orientación simulada, helper de geometría, conteo de listeners, prueba de paridad de chispas, **muestreo de píxel 1×1 de continuidad**, **geometría del landing/dock**, sin snapshots, polling).
-- `slices_defined`: 26 tareas atómicas (T0.1 y T0.2 resueltas; T1.1–T1.5, T2.1, T3.1–T3.7, T4.1–T4.2, T5.1–T5.6, T6.1–T6.3); todas desbloqueadas (T4.2 es spec-only sin asset).
+- `implementation_decisions_count`: 27 (D1–D27).
+- `testing_decisions_count`: 17 (archivo nuevo, contextos mobile, stubs de permiso por estado, spy de llamadas, **eventos de activación + cap 5**, **predicado puro en Node**, **proyecto WebKit acotado**, **attach optimista/teardown**, sensores sintéticos, orientación simulada, helper de geometría, invariante/conteo de listeners, prueba de paridad de chispas, muestreo de píxel 1×1 de continuidad, geometría del landing/dock, sin snapshots, polling).
+- `slices_defined`: 27 tareas atómicas (T0.1 y T0.2 resueltas; T1.1–T1.5, T2.1, T3.1–T3.7, T4.1–T4.2, T5.1–T5.7, T6.1–T6.3); todas desbloqueadas (T4.2 es spec-only sin asset).
 
 ## 18. Result Contract
 
-- **status**: `pass` — spec reconciliado end-to-end con design v6 (sobre v5/v4); sin bloqueantes.
-- **summary**: spec v4 + deltas v5/v6 incorporados: pipeline de permiso automático (F1/F2), label de denegación, amplitudes de estrellas v5, **continuidad intro→film v6** (film backdrop = stack del velo, opacidad constante 1, sin scale de panel, overlay gateado a video con metadatos, C1/C2), **aterrizaje del reloj v6** (dock 106×300/54×150, tween function-based a `scale 0.32/0.30` sin opacity/filter, reloj visible al 100 %, C3/C4), **contrato del drink** spec-only (C7/§7.10), supersesión de §22/§53 y referencia §56, criterios G/S/F2/E/C, tareas y validación actualizadas. Se mantienen los valores autoritativos de los cuatro artefactos (hashes verificados), la materialización de polvo/chispas (copias byte-identical + paridad) y las invariantes (2 timelines, transform/opacity, sin deps, CSP, sin “moon”).
-- **artifacts**: este documento (deltas v5+v6); `docs/design/experience-intro/*` sin modificar; no se tocó código.
-- **next_recommended**: `developer` aplica los deltas sobre el trabajo en curso y ejecuta F1–F6 → `reviewer` sobre el diff.
-- **risks**: sensores iOS dependen de HTTPS; signos de landscape en QA; posible reordenamiento acotado de eventos de retry en iPhone; flakiness del muestreo de píxeles de continuidad (C1 por computed styles es la aserción primaria); divergencia del polvo reconstruido si aparece `check-mock.mjs` (decorativo; las chispas no tienen esta exposición gracias al JSON autoritativo + paridad); el drink sigue sin asset (dock vacío por diseño).
+- **status**: `pass` — spec reconciliado end-to-end con design v7 (sobre v6/v5/v4); sin bloqueantes.
+- **summary**: spec v4 + deltas v5/v6/v7 incorporados. v7 corrige la política de permiso del bug de producción: **retry solo con eventos de activación** (`touchend`/`pointerup`/`click`/`mousedown`/`keydown` + `pointerdown` mouse; RC-1), **no-final nunca terminal con cap de 5 intentos por carga** (decisión del lead), **attach optimista** del listener de motion tras el primer no-final (RC-2) con invariante de listener único y teardown en `denied`, y **gate por lado corto** (`Math.min(innerWidth, innerHeight) ≤ 800`). Se agregan G3′/G4′/G10/G11, el proyecto Playwright `webkit-tilt` acotado por `@webkit` (`grep`/`grepInvert`, sin duplicar la suite), casos RC-1/RC-2/optimista/gate y se actualizan tareas/validación. v6 (continuidad/landing/drink) y v5 (amplitudes/F2/label) quedan intactos; se mantienen artefactos y hashes verificados, materialización de polvo/chispas con paridad e invariantes (2 timelines, transform/opacity, CSP, sin deps, sin “moon”).
+- **artifacts**: este documento (deltas v5+v6+v7); `docs/design/experience-intro/*` sin modificar; no se tocó código.
+- **next_recommended**: `developer` aplica los deltas sobre el trabajo en curso (incluida la config `webkit-tilt` y el predicado puro) y ejecuta F1–F6 → `reviewer` sobre el diff.
+- **risks**: sensores iOS dependen de HTTPS; flakiness del muestreo 1×1 de continuidad (C1 por computed styles es la aserción primaria); el cap de 5 puede terminar en silencio en engines que devuelven no-finales (política aprobada; el attach optimista mantiene el parallax si hay eventos); costo CI del engine WebKit acotado por `grep`; divergencia del polvo reconstruido si aparece `check-mock.mjs` (decorativo; chispas con JSON autoritativo + paridad); el drink sigue sin asset (dock vacío por diseño).
 - **skill_resolution**: `writing-plans` sigue denegado por el tool `skill` en esta sesión; se mantiene el formato del plan de Fase 01 del repo como checklist. No se usaron otras skills (trabajo de especificación sin implementación).

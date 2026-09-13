@@ -30,10 +30,19 @@ export default defineConfig({
     },
   },
 
+  // v7 (T5.7/§13.5): the Chromium project runs the whole suite except the
+  // `@webkit`-tagged RC-1 activation-semantics cases; the scoped `webkit-tilt`
+  // project runs only those (real iOS touch semantics). No suite duplication.
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      grepInvert: /@webkit/,
+    },
+    {
+      name: 'webkit-tilt',
+      use: { ...devices['iPhone 13'] },
+      grep: /@webkit/,
     },
   ],
 });

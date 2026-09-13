@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { inflateSync } from 'node:zlib';
 
+import { isActivationQualifyingEvent } from '../../src/lib/motion/deviceTilt';
+
 /**
  * Fase 01 upgrade (v4 + deltas v5/v6) — sky + pointer/gyro tilt + lateral exit
  * + automatic permission pipeline + intro→film continuity + clock landing.
@@ -70,10 +72,25 @@ type PermissionMode =
   | 'unknown'
   | 'reject'
   | 'prompt-then-denied'
+  | 'prompt-then-granted'
   | 'android'
   | 'unsupported';
 
-const RETRY_EVENTS = ['pointerdown', 'touchstart', 'wheel', 'scroll', 'keydown'] as const;
+/**
+ * v7 (RC-1): the interaction retry arms these types; `pointerdown` only
+ * qualifies when `pointerType === 'mouse'` (filtered by the pure predicate).
+ */
+const RETRY_EVENTS = [
+  'touchend',
+  'pointerup',
+  'click',
+  'mousedown',
+  'keydown',
+  'pointerdown',
+] as const;
+
+/** v7 (RC-1): non-activation events must never consume an attempt. */
+const NON_ACTIVATION_EVENTS = ['touchstart', 'wheel', 'scroll'] as const;
 
 function readJson<T>(relativePath: string): T {
   return JSON.parse(readFileSync(join(repoRoot, relativePath), 'utf8')) as T;
@@ -132,12 +149,14 @@ async function withMobile(
       await context.addInitScript((mode: string) => {
         const testWindow = window as unknown as TestWindow;
         testWindow.__tiltPermissionCalls = 0;
+        const existing = (window as unknown as { DeviceOrientationEvent?: unknown })
+          .DeviceOrientationEvent;
         if (mode === 'unsupported') {
           delete (window as unknown as { DeviceOrientationEvent?: unknown }).DeviceOrientationEvent;
           return;
         }
-        const ctor = DeviceOrientationEvent as unknown as Record<string, unknown> | undefined;
-        if (!ctor) return;
+        if (typeof existing === 'undefined') return;
+        const ctor = existing as Record<string, unknown>;
         if (mode === 'android') {
           delete ctor.requestPermission;
           return;
@@ -147,6 +166,11 @@ async function withMobile(
           if (mode === 'prompt-then-denied') {
             return Promise.resolve(
               (testWindow.__tiltPermissionCalls ?? 0) > 1 ? 'denied' : 'prompt',
+            );
+          }
+          if (mode === 'prompt-then-granted') {
+            return Promise.resolve(
+              (testWindow.__tiltPermissionCalls ?? 0) > 1 ? 'granted' : 'prompt',
             );
           }
           if (mode === 'granted') return Promise.resolve('granted');
@@ -340,10 +364,31 @@ async function dispatchOrientationSeries(
   );
 }
 
-async function dispatchGesture(page: Page, type: string): Promise<void> {
-  await page.evaluate((eventType) => {
-    window.dispatchEvent(new Event(eventType, { bubbles: true }));
-  }, type);
+/**
+ * Dispatches one interaction event on `window`. Touch types use a real
+ * `TouchEvent` when constructible (WebKit and Chromium both support it) and
+ * fall back to a plain `Event`; `pointerType` is passed for `PointerEvent`s so
+ * the v7 `pointerdown` filter can be exercised.
+ */
+async function dispatchGesture(page: Page, type: string, pointerType?: string): Promise<void> {
+  await page.evaluate(
+    ({ eventType, pointer }) => {
+      let event: Event;
+      if (pointer) {
+        event = new PointerEvent(eventType, { pointerType: pointer, bubbles: true });
+      } else if (eventType.startsWith('touch')) {
+        try {
+          event = new TouchEvent(eventType, { bubbles: true });
+        } catch {
+          event = new Event(eventType, { bubbles: true });
+        }
+      } else {
+        event = new Event(eventType, { bubbles: true });
+      }
+      window.dispatchEvent(event);
+    },
+    { eventType: type, pointer: pointerType ?? null },
+  );
 }
 
 /**
@@ -1196,14 +1241,15 @@ test('G2/G7 granted: automatic load attempt, arming after entry, S2 star budget'
       expect(interactive).toEqual({ buttons: 0, asks: 0, tabbables: 0 });
       await expect(page.locator('[data-experience-tilt]')).toBeHidden();
 
-      // G7: granted before the entry completes, but the sensor listener is not
-      // attached until `arm()` runs on entry completion.
+      // G7 (v7): the granted path attaches the single listener as soon as the
+      // grant resolves, but samples only move the clock once the entry has
+      // completed (pre-entry samples never move nor baseline).
       expect(
         await page.evaluate(
           () =>
             ((window as unknown as TestWindow).__listenerCounts ?? {})['deviceorientation'] ?? 0,
         ),
-      ).toBe(0);
+      ).toBe(1);
       await dispatchOrientationSeries(page, 95, 12, 8);
       await dispatchOrientationSeries(page, 120, 37, 30);
       const beforeEntry = await page
@@ -1241,79 +1287,73 @@ test('G2/G7 granted: automatic load attempt, arming after entry, S2 star budget'
   );
 });
 
-test('G3/F1 non-final result (prompt): retryable, one extra call on gesture, no label', async ({
+test('G3′ non-final (prompt): non-activation events never consume; activation re-arms to the cap', async ({
   browser,
 }) => {
-  test.setTimeout(90000);
+  test.setTimeout(120000);
   await withMobile(
     browser,
     { width: 390, height: 844 },
     { permission: 'prompt', extra: listenerSpyInit },
     async (page) => {
-      await waitForEntry(page);
+      const calls = () =>
+        page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls ?? 0);
+      await expect.poll(calls, { timeout: 10000 }).toBe(1);
       const label = page.locator('[data-experience-tilt]');
       await expect(label).toBeHidden();
-      expect(await label.textContent()).not.toContain('Sin movimiento');
-      expect(
-        await page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls),
-      ).toBe(1);
 
-      // The five retry listeners are armed after the non-final load attempt.
-      const counts = await page.evaluate(
-        () => (window as unknown as TestWindow).__listenerCounts ?? {},
-      );
-      for (const type of RETRY_EVENTS) {
-        expect(counts[type] ?? 0, `armed ${type}`).toBeGreaterThanOrEqual(1);
+      // RC-1 negatives: touchstart/wheel/scroll and a touch pointerdown do not
+      // consume the retry (they are not activation-qualifying).
+      await dispatchGesture(page, 'touchstart');
+      await dispatchGesture(page, 'wheel');
+      await dispatchGesture(page, 'scroll');
+      await dispatchGesture(page, 'pointerdown', 'touch');
+      await page.waitForTimeout(250);
+      expect(await calls()).toBe(1);
+      await expect(label).toBeHidden();
+
+      // Four activation interactions + the load attempt = the 5-attempt cap.
+      for (let expected = 2; expected <= 5; expected += 1) {
+        await dispatchGesture(page, 'click');
+        await expect.poll(calls, { timeout: 5000 }).toBe(expected);
       }
-
-      // First gesture -> exactly one extra call; the five listeners self-remove.
-      await dispatchGesture(page, 'pointerdown');
-      await expect
-        .poll(
-          async () =>
-            page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls ?? 0),
-          { timeout: 5000 },
-        )
-        .toBe(2);
+      await expect(label).toBeHidden();
+      expect(await label.textContent()).not.toContain('Sin movimiento');
+      // The retry listeners self-removed on each interaction.
       const removals = await page.evaluate(
         () => (window as unknown as TestWindow).__listenerRemovals ?? {},
       );
-      for (const type of RETRY_EVENTS) {
-        expect(removals[type] ?? 0, `removed ${type}`).toBeGreaterThanOrEqual(1);
-      }
+      expect(removals['click'] ?? 0).toBeGreaterThanOrEqual(4);
 
-      // Second non-final result ends the pipeline silently.
-      await dispatchGesture(page, 'pointerdown');
+      // After the cap: no further calls, no label, no silent UI.
+      await dispatchGesture(page, 'click');
       await page.waitForTimeout(300);
-      expect(
-        await page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls),
-      ).toBe(2);
+      expect(await calls()).toBe(5);
       await expect(label).toBeHidden();
     },
   );
 });
 
-test('G3/F1 rejection (NotAllowedError): retryable, no label', async ({ browser }) => {
+test('G3′ non-final rejection (NotAllowedError): retryable, never terminal, no label', async ({
+  browser,
+}) => {
+  test.setTimeout(90000);
   await withMobile(browser, { width: 390, height: 844 }, { permission: 'reject' }, async (page) => {
-    await waitForEntry(page);
-    await expect(page.locator('[data-experience-tilt]')).toBeHidden();
-    expect(await page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls)).toBe(
-      1,
-    );
+    const calls = () =>
+      page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls ?? 0);
+    await expect.poll(calls, { timeout: 10000 }).toBe(1);
+    const label = page.locator('[data-experience-tilt]');
+    await expect(label).toBeHidden();
 
-    await dispatchGesture(page, 'pointerdown');
-    await expect
-      .poll(
-        async () =>
-          page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls ?? 0),
-        { timeout: 5000 },
-      )
-      .toBe(2);
-    await page.waitForTimeout(300);
-    await expect(page.locator('[data-experience-tilt]')).toBeHidden();
-    expect(await page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls)).toBe(
-      2,
-    );
+    // Each activation interaction re-attempts; non-final results never end
+    // the pipeline below the cap and never show UI.
+    await dispatchGesture(page, 'keydown');
+    await expect.poll(calls, { timeout: 5000 }).toBe(2);
+    await expect(label).toBeHidden();
+    await dispatchGesture(page, 'touchend');
+    await expect.poll(calls, { timeout: 5000 }).toBe(3);
+    await expect(label).toBeHidden();
+    expect(await label.textContent()).not.toContain('Sin movimiento');
   });
 });
 
@@ -1361,31 +1401,31 @@ test('G5 denied: label shown after entry with exact copy, no re-prompt', async (
   });
 });
 
-test('G4/G5 denied via the one-shot gesture retry shows the label', async ({ browser }) => {
+test('G4/G5 denied via the activation retry shows the label', async ({ browser }) => {
   test.setTimeout(90000);
   await withMobile(
     browser,
     { width: 390, height: 844 },
     { permission: 'prompt-then-denied' },
     async (page) => {
+      const calls = () =>
+        page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls ?? 0);
+      await expect.poll(calls, { timeout: 10000 }).toBe(1);
       await waitForEntry(page);
       const label = page.locator('[data-experience-tilt]');
       await expect(label).toBeHidden();
-      expect(
-        await page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls),
-      ).toBe(1);
 
-      await dispatchGesture(page, 'pointerdown');
+      await dispatchGesture(page, 'click');
       await expect(label).toBeVisible();
-      expect(
-        await page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls),
-      ).toBe(2);
+      await expect.poll(calls, { timeout: 5000 }).toBe(2);
+      const text = ((await label.textContent()) ?? '').replace(/\s+/g, ' ').trim();
+      expect(text).toContain('Viví la experiencia completa');
+      expect(text).toContain('Habilitá el acceso a movimiento y orientación en Ajustes › Safari');
 
-      await dispatchGesture(page, 'pointerdown');
+      await dispatchGesture(page, 'click');
       await page.waitForTimeout(300);
-      expect(
-        await page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls),
-      ).toBe(2);
+      expect(await calls()).toBe(2);
+      await expect(label).toBeVisible();
     },
   );
 });
@@ -1509,27 +1549,38 @@ test('G9 desktop: no request, no listener, no label, deviceorientation ignored',
   }
 });
 
-test('listener budget: mobile mounts at most one of each family (G5)', async ({ browser }) => {
+test('G10/G12 listener invariant: one deviceorientation add per lifetime; retry self-removes', async ({
+  browser,
+}) => {
+  test.setTimeout(150000);
+  const viewport = { width: 390, height: 844 };
+
+  // Android `auto`: the listener is attached at init and stays unique through
+  // entry + samples; the other families stay within the budget.
   await withMobile(
     browser,
-    { width: 390, height: 844 },
+    viewport,
     { permission: 'android', extra: listenerSpyInit },
     async (page) => {
+      const adds = () =>
+        page.evaluate(
+          () =>
+            ((window as unknown as TestWindow).__listenerCounts ?? {})['deviceorientation'] ?? 0,
+        );
+      await expect.poll(adds, { timeout: 10000 }).toBe(1);
       await waitForEntry(page);
       await page.waitForTimeout(500);
       await dispatchOrientationSeries(page, 95, 12, 8);
       await dispatchOrientationSeries(page, 120, 37, 5);
       await page.waitForTimeout(300);
+      expect(await adds()).toBe(1);
 
       const counts = await page.evaluate(
         () => (window as unknown as TestWindow).__listenerCounts ?? {},
       );
-      expect(counts['deviceorientation'] ?? 0).toBeLessThanOrEqual(1);
-      // ScrollTrigger itself registers one `visibilitychange` listener, so the
-      // budget is "framework baseline + at most one from the tilt module".
+      // ScrollTrigger registers one `visibilitychange` listener itself.
       expect(counts['visibilitychange'] ?? 0).toBeLessThanOrEqual(2);
-      expect(counts['orientationchange'] ?? 0).toBeLessThanOrEqual(1);
-      expect(counts['orientationchange'] ?? 0).toBeGreaterThanOrEqual(1);
+      expect(counts['orientationchange'] ?? 0).toBe(1);
       expect(counts['pointermove'] ?? 0).toBeLessThanOrEqual(1);
 
       // Off-screen pause: scrolling past the intro zeroes the offsets.
@@ -1544,9 +1595,303 @@ test('listener budget: mobile mounts at most one of each family (G5)', async ({ 
       expect(Math.abs((await readTransform(page, 'img[src="/reloj.png"]')).m41)).toBeLessThan(2);
     },
   );
+
+  // Non-final path: the retry arms the activation listeners, they self-remove
+  // on use, and the optimistic attach adds exactly one motion listener.
+  await withMobile(
+    browser,
+    viewport,
+    { permission: 'prompt', extra: listenerSpyInit },
+    async (page) => {
+      const calls = () =>
+        page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls ?? 0);
+      await expect.poll(calls, { timeout: 10000 }).toBe(1);
+      const counts = await page.evaluate(
+        () => (window as unknown as TestWindow).__listenerCounts ?? {},
+      );
+      for (const type of RETRY_EVENTS) {
+        expect(counts[type] ?? 0, `armed ${type}`).toBeGreaterThanOrEqual(1);
+      }
+      expect(counts['deviceorientation'] ?? 0).toBe(1); // optimistic attach
+
+      await dispatchGesture(page, 'click');
+      await expect.poll(calls, { timeout: 5000 }).toBe(2);
+      const removals = await page.evaluate(
+        () => (window as unknown as TestWindow).__listenerRemovals ?? {},
+      );
+      for (const type of RETRY_EVENTS) {
+        expect(removals[type] ?? 0, `removed ${type}`).toBeGreaterThanOrEqual(1);
+      }
+      const countsAfter = await page.evaluate(
+        () => (window as unknown as TestWindow).__listenerCounts ?? {},
+      );
+      expect(countsAfter['deviceorientation'] ?? 0).toBe(1);
+    },
+  );
 });
 
-// --- 8. continuity intro -> film (C1/C2) -------------------------------------
+// --- 8. v7 permission policy (RC-1/RC-2/G10/G11) -----------------------------
+
+test('@webkit isActivationQualifyingEvent matrix (Node predicate)', () => {
+  for (const type of ['touchend', 'pointerup', 'click', 'mousedown', 'keydown']) {
+    expect(isActivationQualifyingEvent(type), type).toBe(true);
+  }
+  expect(isActivationQualifyingEvent('pointerdown', 'mouse')).toBe(true);
+  expect(isActivationQualifyingEvent('pointerdown', 'touch')).toBe(false);
+  expect(isActivationQualifyingEvent('pointerdown')).toBe(false);
+  for (const type of [...NON_ACTIVATION_EVENTS, 'pointermove', 'mouseup']) {
+    expect(isActivationQualifyingEvent(type), type).toBe(false);
+  }
+});
+
+test('@webkit RC-1: activation events call once; non-activation events call none', async ({
+  browser,
+}) => {
+  test.setTimeout(240000);
+  await withMobile(browser, { width: 390, height: 844 }, { permission: 'prompt' }, async (page) => {
+    const calls = () =>
+      page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls ?? 0);
+
+    const positives: Array<{ type: string; pointerType?: string }> = [
+      { type: 'touchend' },
+      { type: 'pointerup' },
+      { type: 'click' },
+      { type: 'mousedown' },
+      { type: 'keydown' },
+      { type: 'pointerdown', pointerType: 'mouse' },
+    ];
+    for (const entry of positives) {
+      await page.goto('/');
+      await expect.poll(calls, { timeout: 10000 }).toBe(1);
+      await dispatchGesture(page, entry.type, entry.pointerType);
+      await expect.poll(calls, { timeout: 5000 }).toBe(2);
+    }
+
+    const negatives: Array<{ type: string; pointerType?: string }> = [
+      { type: 'touchstart' },
+      { type: 'wheel' },
+      { type: 'scroll' },
+      { type: 'pointerdown', pointerType: 'touch' },
+    ];
+    for (const entry of negatives) {
+      await page.goto('/');
+      await expect.poll(calls, { timeout: 10000 }).toBe(1);
+      await dispatchGesture(page, entry.type, entry.pointerType);
+      await page.waitForTimeout(300);
+      expect(await calls(), `no call for ${entry.type}`).toBe(1);
+    }
+    // The negatives did not consume the retry of the last context.
+    await dispatchGesture(page, 'click');
+    await expect.poll(calls, { timeout: 5000 }).toBe(2);
+  });
+});
+
+test('G3′/RC-2 repeated prompt: 5-attempt cap, no label, optimistic motion', async ({
+  browser,
+}) => {
+  test.setTimeout(150000);
+  await withMobile(
+    browser,
+    { width: 390, height: 844 },
+    { permission: 'prompt', extra: listenerSpyInit },
+    async (page) => {
+      const calls = () =>
+        page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls ?? 0);
+      const adds = () =>
+        page.evaluate(
+          () =>
+            ((window as unknown as TestWindow).__listenerCounts ?? {})['deviceorientation'] ?? 0,
+        );
+      const label = page.locator('[data-experience-tilt]');
+
+      await expect.poll(calls, { timeout: 10000 }).toBe(1);
+      await expect(label).toBeHidden();
+      // RC-2: the first non-final result attaches the single motion listener.
+      await expect.poll(adds, { timeout: 5000 }).toBe(1);
+
+      // Load attempt + four activation interactions = 5 calls, never terminal.
+      for (let expected = 2; expected <= 5; expected += 1) {
+        await dispatchGesture(page, 'click');
+        await expect.poll(calls, { timeout: 5000 }).toBe(expected);
+        await expect(label).toBeHidden();
+      }
+
+      // Cap reached: no more calls, no label, no silent UI.
+      await dispatchGesture(page, 'click');
+      await page.waitForTimeout(300);
+      expect(await calls()).toBe(5);
+      await expect(label).toBeHidden();
+      expect(await adds()).toBe(1);
+
+      // The optimistic listener still delivers motion after the entry.
+      await waitForEntry(page);
+      await setGyro(page, 1, 1);
+      expect(Math.abs((await readTransform(page, 'img[src="/reloj.png"]')).m41)).toBeGreaterThan(
+        10,
+      );
+      await expect(label).toBeHidden();
+    },
+  );
+});
+
+test('G10 optimistic attach: motion without a resolved grant; denied tears down + label', async ({
+  browser,
+}) => {
+  test.setTimeout(150000);
+  await withMobile(
+    browser,
+    { width: 390, height: 844 },
+    { permission: 'prompt-then-denied', extra: listenerSpyInit },
+    async (page) => {
+      const calls = () =>
+        page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls ?? 0);
+      const removals = (type: string) =>
+        page.evaluate(
+          (t) => ((window as unknown as TestWindow).__listenerRemovals ?? {})[t] ?? 0,
+          type,
+        );
+      const label = page.locator('[data-experience-tilt]');
+
+      await expect.poll(calls, { timeout: 10000 }).toBe(1);
+      // Optimistic attach after the first non-final result.
+      await expect
+        .poll(
+          async () =>
+            page.evaluate(
+              () =>
+                ((window as unknown as TestWindow).__listenerCounts ?? {})['deviceorientation'] ??
+                0,
+            ),
+          { timeout: 5000 },
+        )
+        .toBe(1);
+
+      // Pre-entry samples: no movement, no baseline, no label, no extra call.
+      await dispatchOrientationSeries(page, 95, 12, 8);
+      await dispatchOrientationSeries(page, 120, 37, 30);
+      expect(
+        await page
+          .locator('img[src="/reloj.png"]')
+          .evaluate((el) => getComputedStyle(el).transform),
+      ).toBe('none');
+      await expect(label).toBeHidden();
+      expect(await calls()).toBe(1);
+
+      // After the entry the finite samples move the clock without a grant.
+      await waitForEntry(page);
+      await setGyro(page, 1, 1);
+      expect(Math.abs((await readTransform(page, 'img[src="/reloj.png"]')).m41)).toBeGreaterThan(
+        10,
+      );
+      expect(await calls()).toBe(1);
+      await expect(label).toBeHidden();
+
+      // A later `denied` tears the listener down, zeroes the offsets and shows
+      // the label (only reachable through an activation interaction).
+      await dispatchGesture(page, 'click');
+      await expect.poll(calls, { timeout: 5000 }).toBe(2);
+      await expect(label).toBeVisible();
+      await expect
+        .poll(() => removals('deviceorientation'), { timeout: 5000 })
+        .toBeGreaterThanOrEqual(1);
+      await expect
+        .poll(async () => Math.abs((await readTransform(page, 'img[src="/reloj.png"]')).m41), {
+          timeout: 5000,
+        })
+        .toBeLessThan(0.5);
+
+      // Terminal: later interactions never call again nor change the label.
+      await dispatchGesture(page, 'click');
+      await page.waitForTimeout(300);
+      expect(await calls()).toBe(2);
+      await expect(label).toBeVisible();
+    },
+  );
+});
+
+test('G10 optimistic + granted keeps the single listener (G7)', async ({ browser }) => {
+  test.setTimeout(90000);
+  await withMobile(
+    browser,
+    { width: 390, height: 844 },
+    { permission: 'prompt-then-granted', extra: listenerSpyInit },
+    async (page) => {
+      const calls = () =>
+        page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls ?? 0);
+      const adds = () =>
+        page.evaluate(
+          () =>
+            ((window as unknown as TestWindow).__listenerCounts ?? {})['deviceorientation'] ?? 0,
+        );
+      await expect.poll(calls, { timeout: 10000 }).toBe(1);
+      expect(await adds()).toBe(1);
+
+      await dispatchGesture(page, 'click');
+      await expect.poll(calls, { timeout: 5000 }).toBe(2);
+      expect(await adds()).toBe(1); // the same listener, no duplicates
+      expect(
+        await page.evaluate(
+          () =>
+            ((window as unknown as TestWindow).__listenerRemovals ?? {})['deviceorientation'] ?? 0,
+        ),
+      ).toBe(0);
+
+      await waitForEntry(page);
+      await setGyro(page, 1, 1);
+      expect(Math.abs((await readTransform(page, 'img[src="/reloj.png"]')).m41)).toBeGreaterThan(
+        10,
+      );
+      await expect(page.locator('[data-experience-tilt]')).toBeHidden();
+    },
+  );
+});
+
+test('G11 short-side gate: a landscape phone runs the pipeline; large tablets stay out', async ({
+  browser,
+}) => {
+  test.setTimeout(150000);
+
+  // 844×390 phone in landscape: short side 390 <= 800 -> pipeline runs.
+  await withMobile(
+    browser,
+    { width: 844, height: 390 },
+    { permission: 'granted' },
+    async (page) => {
+      const calls = () =>
+        page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls ?? 0);
+      await expect.poll(calls, { timeout: 10000 }).toBe(1);
+      await waitForEntry(page);
+      await setGyro(page, 1, 1);
+      expect(Math.abs((await readTransform(page, 'img[src="/reloj.png"]')).m41)).toBeGreaterThan(
+        10,
+      );
+    },
+  );
+
+  // Large tablets (iPad Pro 11" / iPad 10.9"): short side > 800 -> excluded.
+  for (const viewport of [
+    { width: 834, height: 1194 },
+    { width: 820, height: 1180 },
+  ]) {
+    await withMobile(browser, viewport, { permission: 'granted' }, async (page) => {
+      const calls = () =>
+        page.evaluate(() => (window as unknown as TestWindow).__tiltPermissionCalls ?? 0);
+      await page.waitForTimeout(1200);
+      expect(await calls(), `${viewport.width}x${viewport.height} requests`).toBe(0);
+      await expect(page.locator('[data-experience-tilt]')).toBeHidden();
+      await dispatchOrientationSeries(page, 95, 12, 8);
+      await dispatchOrientationSeries(page, 120, 37, 30);
+      expect(
+        await page
+          .locator('img[src="/reloj.png"]')
+          .evaluate((el) => getComputedStyle(el).transform),
+        `${viewport.width}x${viewport.height} motion`,
+      ).toBe('none');
+    });
+  }
+});
+
+// --- 9. continuity intro -> film (C1/C2) -------------------------------------
 
 test('C1: film backdrop and veil compute the same stack; overlay off without video', async ({
   page,
@@ -1633,7 +1978,7 @@ for (const viewport of CONTINUITY_VIEWPORTS) {
   });
 }
 
-// --- 9. dock + landing (C3/C4/C6) --------------------------------------------
+// --- 10. dock + landing (C3/C4/C6) -------------------------------------------
 
 test('C6 dock is decorative and the landing never overflows', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
@@ -1741,7 +2086,7 @@ for (const viewport of [
   });
 }
 
-// --- 10. no-occlusion contract (G8/E4) ---------------------------------------
+// --- 11. no-occlusion contract (G8/E4) ---------------------------------------
 
 const DESKTOP_VIEWPORTS = [
   { width: 1280, height: 720 },
