@@ -1,0 +1,350 @@
+---
+// Fase 01 · Scene 01 — Clock → Drink (§17–§31 of docs/NODO_clock_to_drink_agent_spec).
+//
+// Layout skeleton + the semantic hooks the DrinkTimeline (homeExperience.ts)
+// drives: [data-drink-handoff-clock], [data-drink-product], [data-drink-base],
+// [data-drink-garnish], [data-drink-final], [data-drink-glow].
+//
+// Design laws honoured here:
+// - §18 the cocktail is real content: <img>, never background-image.
+// - §20 trago-base / trago-final share canvas (1086×1448) and are rendered
+//   with identical box/position/object-fit — never calibrated as two objects.
+// - §24/§9 match cut: the section overlaps Scene 00 by 100svh (negative margin)
+//   so both sticky viewports are pinned co-located at the handoff; the two
+//   clocks crossfade (§24) in the intro timeline end / drink timeline start.
+// - §25 background continuity: the exact ExperienceIntro veil stack, anchored
+//   at the same screen position while both viewports are pinned.
+// - §31 stacking: bg 0 < glow 1 < base 2 < handoff clock 3 < garnish 4 <
+//   final 5 (grain stays global, above everything).
+// - §35/§36 natural state = trago-final visible (no JS and reduced motion);
+//   JS applies the animated states.
+// - §44 the drink set is second scene: fetchpriority low (the clock keeps high).
+---
+
+<section class="clock-drink" data-clock-drink>
+  <div class="clock-drink__viewport">
+    <div class="clock-drink__glow" data-drink-glow aria-hidden="true"></div>
+
+    <div class="clock-drink__handoff-clock" data-drink-handoff-clock aria-hidden="true">
+      <img src="/reloj.png" alt="" width="1672" height="941" decoding="async" loading="eager" />
+    </div>
+
+    <div class="clock-drink__product" data-drink-product aria-hidden="true">
+      <img
+        class="clock-drink__base"
+        data-drink-base
+        src="/trago-base.png"
+        alt=""
+        width="1086"
+        height="1448"
+        decoding="async"
+        loading="eager"
+        fetchpriority="low"
+      />
+
+      <img
+        class="clock-drink__garnish"
+        data-drink-garnish
+        src="/reloj-gajo.png"
+        alt=""
+        width="1254"
+        height="1254"
+        decoding="async"
+        loading="eager"
+        fetchpriority="low"
+      />
+
+      <img
+        class="clock-drink__final"
+        data-drink-final
+        src="/trago-final.png"
+        alt=""
+        width="1086"
+        height="1448"
+        decoding="async"
+        loading="eager"
+        fetchpriority="low"
+      />
+    </div>
+  </div>
+</section>
+
+<style>
+  /* §27 — one section of scroll travel for the product scene; the sticky,
+     clipped viewport below is what the DrinkTimeline scrubs against.
+     §24/§9 — the -104svh margin pulls the section over Scene 00: the drink
+     viewport is pinned at top 0 and covering the full screen 4svh BEFORE the
+     intro viewport stops being pinned, so the §24 veil/clock crossfade (intro
+     97–100 %) happens with the identical stack of Scene 01 already behind it
+     (no tiling seam, no body strip) and the two opacity fades overlap. */
+  .clock-drink {
+    position: relative;
+    z-index: 1;
+    margin-top: -104svh;
+    min-height: 230svh;
+  }
+
+  /* §25 — the exact veil stack from ExperienceIntro.astro: the handoff frame
+     must not change black/green when the section changes. If the veil stack
+     changes, this copies it. */
+  .clock-drink__viewport {
+    position: sticky;
+    top: 0;
+    height: 100svh;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 50% 46%, rgb(13 63 55 / 0.28), transparent 46%),
+      radial-gradient(circle at 86% 88%, rgb(201 167 67 / 0.06), transparent 30rem),
+      var(--nodo-night);
+  }
+
+  /* §26 — atmospheric light behind the glass (opacity 0 → ~0.35 in the
+     timeline; the static value is the target). Sized ~2× the product box so
+     it reads as illumination, not as a graphic circle. */
+  .clock-drink__glow {
+    position: absolute;
+    left: 51%;
+    top: 56.5%;
+    width: clamp(34rem, 62vw, 68rem);
+    aspect-ratio: 1;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle, rgb(212 119 39 / 18%), transparent 58%);
+    opacity: 0.35;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* §19/§31 — the product box. It is intentionally NOT a stacking context
+     (no transform, no z-index): its children carry the §31 z-index values and
+     must interleave with the handoff clock (3) that lives outside this box.
+     Off-centre auto-margin centring (left 2% / top 13% of slack) puts the box
+     centre at 51vw / 56.5svh without `translate` — approved visual centre
+     ranges are x 50–52vw, y 55–58svh. */
+  .clock-drink__product {
+    position: absolute;
+    inset: 13% 0 0 2%;
+    margin: auto;
+    width: clamp(22rem, 31vw, 34rem);
+    aspect-ratio: 1086 / 1448;
+    pointer-events: none;
+  }
+
+  /* §20 — base and final are pixel-aligned by construction: same box, same
+     object-fit, same transform. Never style them independently. */
+  .clock-drink__base,
+  .clock-drink__final {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  /* Natural state (§36): only the baked final is visible; the animated layers
+     are invisible until JS prepares them. */
+  .clock-drink__base {
+    z-index: 2;
+    opacity: 0;
+  }
+
+  .clock-drink__final {
+    z-index: 5;
+    opacity: 1;
+  }
+
+  /* §22 — garnish alignment inside the product box (designer calibration,
+     Wave 2; tolerances ±6 % width / ±4 % left / ±4 % top / ±2.5 % origin).
+     The gajo's own dial sits at 54.4 % / 49.4 % of its 1254×1254 master, so
+     these values put the dial at x 71.0 % / y 34.4 % of the product box —
+     exactly where the Scene 00 dock points at both reference viewports. */
+  .clock-drink__garnish {
+    position: absolute;
+    z-index: 4;
+    width: 82%;
+    left: 26.4%;
+    top: 4%;
+    height: auto;
+    transform: rotate(0deg);
+    transform-origin: 54.4% 49.4%;
+    opacity: 0;
+    /* §24 — same light as the handoff clock it replaces in the crossfade
+       (both are the clock object; the glass photos keep their own lighting). */
+    filter: drop-shadow(0 2rem 4rem rgb(0 0 0 / 42%)) drop-shadow(0 0 3rem rgb(201 167 67 / 8%));
+  }
+
+  /* §9/§14/§16 — the handoff clock: the same file, size, scale and perceptual
+     centre as the Scene 00 landed clock, so the section change is invisible.
+     The dock point (left 57.5 % / top 46.2 %; 66.4 % / 42.5 % ≤ 800 px) targets
+     the VISIBLE centre of reloj.png. Designer calibration (Wave 2):
+     visible bbox x 370→1300, y 7→910 → pivot (835.5, 459.0) vs canvas centre
+     (836, 470.5) → relative offsets −0.000299 (x) and −0.012221 (y of height),
+     i.e. +0.000299 and +0.006879 per width. --handoff-pivot-* shift the
+     element by the inverse so the visible centre lands on the dock point. */
+  .clock-drink__handoff-clock {
+    --handoff-w: min(clamp(18rem, 40vw, 42rem), calc(40svh * (1672 / 941)));
+    --handoff-scale: 0.46;
+    --handoff-pivot-x: calc(0.000299 * var(--handoff-w) * var(--handoff-scale));
+    --handoff-pivot-y: calc(0.006879 * var(--handoff-w) * var(--handoff-scale));
+
+    position: absolute;
+    left: calc(57.5% + var(--handoff-pivot-x));
+    top: calc(46.2% + var(--handoff-pivot-y));
+    width: var(--handoff-w);
+    aspect-ratio: 1672 / 941;
+    transform: translate(-50%, -50%) scale(var(--handoff-scale));
+    transform-origin: 50% 50%;
+    pointer-events: none;
+    z-index: 3;
+    opacity: 0; /* natural state = final (§36); JS raises it for the handoff */
+  }
+
+  .clock-drink__handoff-clock img {
+    display: block;
+    width: 100%;
+    height: auto;
+    /* §24/OBS-1 — the exact Scene 00 clock shadow: the two clocks must
+       crossfade with identical light (same drop-shadow as
+       `[data-experience-clock] img` in ExperienceIntro.astro). */
+    filter: drop-shadow(0 2rem 4rem rgb(0 0 0 / 42%)) drop-shadow(0 0 3rem rgb(201 167 67 / 8%));
+  }
+
+  /* §35 — reduced motion: no morph layers at all, the baked final is the
+     scene. */
+  @media (prefers-reduced-motion: reduce) {
+    .clock-drink__handoff-clock,
+    .clock-drink__base,
+    .clock-drink__garnish {
+      display: none;
+    }
+
+    .clock-drink__final {
+      opacity: 1;
+    }
+  }
+
+  /* §42 — mobile: shorter run and a larger product relative to the viewport;
+     the product centres at (50 %, 50 %) and the handoff point moves to
+     66.4 % / 42.5 % (designer calibration, Wave 2). */
+  @media (max-width: 800px) {
+    .clock-drink {
+      min-height: 190svh;
+    }
+
+    .clock-drink__product {
+      inset: 0;
+      width: min(78vw, 26rem);
+    }
+
+    .clock-drink__glow {
+      left: 50%;
+      top: 50%;
+      width: min(120vw, 46rem);
+    }
+
+    .clock-drink__handoff-clock {
+      --handoff-w: min(min(80vw, 24rem), calc(32svh * (1672 / 941)));
+      --handoff-scale: 0.58;
+
+      left: calc(66.4% + var(--handoff-pivot-x));
+      top: calc(42.5% + var(--handoff-pivot-y));
+    }
+  }
+</style>
+
+<script>
+  // §50 — calibration mode, DEV-ONLY. In a production build Vite replaces
+  // `import.meta.env.DEV` with `false`, so this branch (and the debug styles it
+  // injects) never runs: production ignores `?debugExperience` completely.
+  if (import.meta.env.DEV) {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('debugExperience') === '1') {
+      const root = document.documentElement;
+      const state = params.get('state');
+      root.dataset.debugExperience = '1';
+      if (state) root.dataset.debugState = state;
+
+      const style = document.createElement('style');
+      style.id = 'debug-experience-style';
+      style.textContent = `
+        /* Boxes, centres and opacity labels for Gate-1 calibration. */
+        [data-debug-experience] [data-experience-dock],
+        [data-debug-experience] [data-drink-glow],
+        [data-debug-experience] [data-drink-product],
+        [data-debug-experience] [data-drink-base],
+        [data-debug-experience] [data-drink-garnish],
+        [data-debug-experience] [data-drink-final],
+        [data-debug-experience] [data-drink-handoff-clock],
+        [data-debug-experience] [data-drink-handoff-clock] img {
+          outline: 1px dashed rgb(255 0 200 / 0.75);
+        }
+        [data-debug-experience] [data-debug-label]::after {
+          content: attr(data-debug-label);
+          position: absolute;
+          left: 10px;
+          top: -12px;
+          z-index: 99;
+          font: 10px/1.3 ui-monospace, monospace;
+          color: rgb(255 0 200 / 0.95);
+          white-space: nowrap;
+        }
+        [data-debug-experience] [data-drink-product]::before {
+          content: '';
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          width: 12px;
+          height: 12px;
+          margin: -6px 0 0 -6px;
+          border: 1px solid rgb(255 0 200 / 0.9);
+          border-radius: 50%;
+        }
+        [data-debug-experience] [data-drink-handoff-clock]::before {
+          content: '';
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          width: 14px;
+          height: 14px;
+          margin: -7px 0 0 -7px;
+          border: 1px solid rgb(0 240 255 / 0.9);
+          border-radius: 50%;
+        }
+        /* Screenshot pinning: handoff shows the Scene 01 start frame, final
+           shows the baked product (already the natural state). */
+        [data-debug-state='handoff'] [data-drink-product] { opacity: 0 !important; }
+        [data-debug-state='handoff'] [data-drink-handoff-clock] { opacity: 1 !important; }
+        [data-debug-state='final'] [data-drink-handoff-clock] { opacity: 0 !important; }
+        [data-debug-state='final'] [data-drink-base],
+        [data-debug-state='final'] [data-drink-garnish] { opacity: 0 !important; }
+        [data-debug-state='final'] [data-drink-final] { opacity: 1 !important; }
+      `;
+      document.head.append(style);
+
+      // Labels (attribute-driven so the CSS above stays generic).
+      const label = (selector: string, text: string) => {
+        document.querySelector(selector)?.setAttribute('data-debug-label', text);
+      };
+      label('[data-experience-dock]', 'dock 57.5% / 46.2% (66.4% / 42.5% ≤800)');
+      label('[data-drink-glow]', 'glow · opacity .35');
+      label(
+        '[data-drink-product]',
+        'product · desktop (51%, 56.5%) / mobile (50%, 50%) · garnish 82% / 26.4% / 4% · origin 54.4% 49.4% · base op 0 · final op 1',
+      );
+      label('[data-drink-handoff-clock]', 'handoff clock · opacity 0 · scale .46 / .58');
+
+      // Frame pinning for screenshots: handoff = Scene 00 end frame, final =
+      // Scene 01 start frame (both sticky viewports are then full-screen).
+      requestAnimationFrame(() => {
+        if (state === 'handoff') {
+          const intro = document.querySelector<HTMLElement>('[data-experience-intro]');
+          if (intro) {
+            window.scrollTo(0, intro.offsetTop + intro.offsetHeight - window.innerHeight);
+          }
+        } else if (state === 'final') {
+          const scene = document.querySelector<HTMLElement>('[data-clock-drink]');
+          if (scene) window.scrollTo(0, scene.offsetTop);
+        }
+      });
+    }
+  }
+</script>

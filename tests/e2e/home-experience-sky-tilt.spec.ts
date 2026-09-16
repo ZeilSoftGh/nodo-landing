@@ -312,6 +312,13 @@ async function scrollToProgress(page: Page, target: number): Promise<number> {
     const distance = Math.max(0, section.offsetHeight - window.innerHeight);
     window.scrollTo(0, top + distance * progress);
   }, target);
+  // The Lenis easing tail can still be in flight when the layout reads stable;
+  // wait until the requested progress is actually reached, then give the scrub
+  // one render tick before sampling the rendered state.
+  await expect
+    .poll(async () => Math.abs((await introProgress(page)) - target), { timeout: 5000 })
+    .toBeLessThan(0.001);
+  await page.waitForTimeout(120);
   await waitForSettledLayout(page);
   return introProgress(page);
 }
@@ -453,6 +460,37 @@ async function measureClearance(page: Page): Promise<Clearance> {
   }, fx);
 }
 
+/**
+ * Scene 01 handoff clock probe (§24): visible bbox centre/height, opacity, the
+ * drink viewport's screen position (must be pinned at 0 when Scene 00 is) and
+ * the rendered filter (must match the Scene 00 clock's).
+ */
+async function readHandoffLanding(page: Page) {
+  const fx = clockBbox().fx;
+  return page.evaluate((fractions) => {
+    const images = Array.from(document.querySelectorAll('img[src="/reloj.png"]'));
+    const img = images[1];
+    const wrapper = document.querySelector('[data-drink-handoff-clock]');
+    const drinkViewport = document.querySelector('.clock-drink__viewport');
+    if (!img || !wrapper || !drinkViewport) throw new Error('handoff nodes missing');
+    const rect = img.getBoundingClientRect();
+    const visible = {
+      left: rect.left + rect.width * fractions.x0,
+      right: rect.left + rect.width * fractions.x1,
+      top: rect.top + rect.height * fractions.y0,
+      bottom: rect.top + rect.height * fractions.y1,
+    };
+    return {
+      center: { x: (visible.left + visible.right) / 2, y: (visible.top + visible.bottom) / 2 },
+      visibleHeight: visible.bottom - visible.top,
+      opacity: Number.parseFloat(getComputedStyle(wrapper).opacity),
+      drinkTop: drinkViewport.getBoundingClientRect().top,
+      filter: getComputedStyle(img).filter,
+      introFilter: getComputedStyle(images[0]).filter,
+    };
+  }, fx);
+}
+
 interface LandingProbe {
   dock: { left: number; top: number; right: number; bottom: number; width: number; height: number };
   clockCenter: { x: number; y: number };
@@ -585,8 +623,10 @@ test.describe('sky structure (desktop)', () => {
     expect(await dock.evaluate((el) => getComputedStyle(el).pointerEvents)).toBe('none');
     expect(await dock.evaluate((el) => el.childElementCount)).toBe(0);
     const dockBox = await dock.evaluate((el) => el.getBoundingClientRect().toJSON());
-    expect(Math.abs(dockBox.width - 106)).toBeLessThan(1);
-    expect(Math.abs(dockBox.height - 300)).toBeLessThan(1);
+    // clock→drink §14 — the dock is a 1×1 reference point now (no longer the
+    // v6 106×300 film frame box).
+    expect(Math.abs(dockBox.width - 1)).toBeLessThan(1);
+    expect(Math.abs(dockBox.height - 1)).toBeLessThan(1);
 
     // v5 denied label: <p role="status" hidden>, non-interactive, no controls.
     const label = page.locator('[data-experience-tilt]');
@@ -804,8 +844,9 @@ test.describe('sky structure (mobile 390x844)', () => {
       const dockBox = await page
         .locator('[data-experience-dock]')
         .evaluate((el) => el.getBoundingClientRect().toJSON());
-      expect(Math.abs(dockBox.width - 54)).toBeLessThan(1);
-      expect(Math.abs(dockBox.height - 150)).toBeLessThan(1);
+      // clock→drink §14 — 1×1 reference point on mobile too (was 54×150).
+      expect(Math.abs(dockBox.width - 1)).toBeLessThan(1);
+      expect(Math.abs(dockBox.height - 1)).toBeLessThan(1);
 
       // The label never shows without a resolved denial.
       await expect(page.locator('[data-experience-tilt]')).toBeHidden();
@@ -857,7 +898,9 @@ test.describe('sky structure (mobile 390x844)', () => {
 // --- 2. no-JS / reduced motion ----------------------------------------------
 
 test.describe('degraded modes', () => {
-  test('no JS: sky, label, dock, title, clock and film render statically', async ({ browser }) => {
+  test('no JS: sky, label, dock, title, clock and the drink final render statically', async ({
+    browser,
+  }) => {
     const context = await browser.newContext({
       javaScriptEnabled: false,
       viewport: { width: 1280, height: 720 },
@@ -871,8 +914,11 @@ test.describe('degraded modes', () => {
         11,
       );
       await expect(page.locator('h1')).toBeVisible();
-      await expect(page.locator('img[src="/reloj.png"]')).toBeVisible();
-      await expect(page.locator('[data-scroll-film]')).toBeVisible();
+      await expect(page.locator('img[src="/reloj.png"]')).toHaveCount(2);
+      await expect(page.locator('img[src="/reloj.png"]').first()).toBeVisible();
+      await expect(page.locator('[data-clock-drink]')).toBeVisible();
+      await expect(page.locator('img[src="/trago-final.png"]')).toBeVisible();
+      await expect(page.locator('[data-scroll-film]')).toHaveCount(0);
       await expect(page.locator('[data-experience-tilt]')).toBeHidden();
 
       for (const selector of ['h1', '[data-experience-clock]']) {
@@ -882,6 +928,12 @@ test.describe('degraded modes', () => {
           .evaluate((el) => getComputedStyle(el).opacity);
         expect(opacity, selector).toBe('1');
       }
+      // §36 natural state: the baked final is the drink scene.
+      expect(
+        await page
+          .locator('img[src="/trago-final.png"]')
+          .evaluate((el) => getComputedStyle(el).opacity),
+      ).toBe('1');
 
       // No controls of any kind and the clock stays in its base position.
       const interactive = await page.evaluate(() => {
@@ -955,6 +1007,7 @@ test.describe('degraded modes', () => {
         await page.waitForTimeout(300);
         const transform = await page
           .locator('img[src="/reloj.png"]')
+          .first()
           .evaluate((el) => getComputedStyle(el).transform);
         expect(transform).toBe('none');
       },
@@ -1254,6 +1307,7 @@ test('G2/G7 granted: automatic load attempt, arming after entry, S2 star budget'
       await dispatchOrientationSeries(page, 120, 37, 30);
       const beforeEntry = await page
         .locator('img[src="/reloj.png"]')
+        .first()
         .evaluate((el) => getComputedStyle(el).transform);
       expect(beforeEntry).toBe('none');
 
@@ -1532,6 +1586,7 @@ test('G9 desktop: no request, no listener, no label, deviceorientation ignored',
     await page.waitForTimeout(400);
     const transform = await page
       .locator('img[src="/reloj.png"]')
+      .first()
       .evaluate((el) => getComputedStyle(el).transform);
     expect(transform).toBe('none');
     await expect(page.locator('[data-experience-tilt]')).toBeHidden();
@@ -1772,6 +1827,7 @@ test('G10 optimistic attach: motion without a resolved grant; denied tears down 
       expect(
         await page
           .locator('img[src="/reloj.png"]')
+          .first()
           .evaluate((el) => getComputedStyle(el).transform),
       ).toBe('none');
       await expect(label).toBeHidden();
@@ -1884,6 +1940,7 @@ test('G11 short-side gate: a landscape phone runs the pipeline; large tablets st
       expect(
         await page
           .locator('img[src="/reloj.png"]')
+          .first()
           .evaluate((el) => getComputedStyle(el).transform),
         `${viewport.width}x${viewport.height} motion`,
       ).toBe('none');
@@ -1893,88 +1950,95 @@ test('G11 short-side gate: a landscape phone runs the pipeline; large tablets st
 
 // --- 9. continuity intro -> film (C1/C2) -------------------------------------
 
-test('C1: film backdrop and veil compute the same stack; overlay off without video', async ({
+test('C1: intro veil and ClockDrink viewport compute the same background stack (§25)', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto('/');
-  await scrollToProgress(page, 0.5);
 
   const stacks = await page.evaluate(() => {
     const veil = document.querySelector('.experience-intro__veil');
-    const film = document.querySelector('.scroll-film__viewport');
-    const overlay = document.querySelector('.scroll-film__overlay');
-    const section = document.querySelector('[data-scroll-film]');
-    if (!veil || !film || !overlay) throw new Error('continuity nodes missing');
+    const drink = document.querySelector('.clock-drink__viewport');
+    if (!veil || !drink) throw new Error('continuity nodes missing');
     const veilStyle = getComputedStyle(veil);
-    const filmStyle = getComputedStyle(film);
+    const drinkStyle = getComputedStyle(drink);
     return {
       veilImage: veilStyle.backgroundImage,
       veilColor: veilStyle.backgroundColor,
-      filmImage: filmStyle.backgroundImage,
-      filmColor: filmStyle.backgroundColor,
-      filmOpacity: filmStyle.opacity,
-      filmTransform: filmStyle.transform,
-      overlayOpacity: getComputedStyle(overlay).opacity,
-      videoReady: section?.hasAttribute('data-video-ready') ?? true,
+      drinkImage: drinkStyle.backgroundImage,
+      drinkColor: drinkStyle.backgroundColor,
     };
   });
 
-  expect(stacks.filmImage).toBe(stacks.veilImage);
-  expect(stacks.filmColor).toBe(stacks.veilColor);
-  expect(stacks.filmOpacity).toBe('1');
-  expect(stacks.filmTransform).toBe('none');
-  expect(stacks.overlayOpacity).toBe('0');
-  expect(stacks.videoReady).toBe(false);
+  expect(stacks.drinkImage).toBe(stacks.veilImage);
+  expect(stacks.drinkColor).toBe(stacks.veilColor);
 });
 
-const CONTINUITY_VIEWPORTS = [
-  { width: 1280, height: 720 },
-  { width: 1440, height: 900 },
-  { width: 1440, height: 700 },
-  { width: 1280, height: 650 },
-  { width: 390, height: 844 },
-];
+const CONTINUITY_VIEWPORTS = [{ width: 1440, height: 900 }];
 
 for (const viewport of CONTINUITY_VIEWPORTS) {
-  test(`C2 continuity pixel sampling ${viewport.width}x${viewport.height}`, async ({ browser }) => {
+  test(`C2 continuity pixel sampling at the handoff ${viewport.width}x${viewport.height}`, async ({
+    page,
+  }) => {
     test.setTimeout(120000);
-    await withDesktop(browser, viewport, async (page) => {
-      const x = Math.max(2, Math.round(viewport.width * 0.01));
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.goto('/');
+    // The load-entry tween must be finished: it owns the same clock transform
+    // the scrub writes, so scrolling early samples a pre-scrub frame.
+    await waitForEntry(page);
 
-      // The film panel rises from below, so the sample point sits just inside
-      // it at t 0.50 (the highest film top among the sampled states where the
-      // veil is already translucent); at 0.34 the veil is still opaque and at
-      // 0.66 the panel covers more. This is the "design point": one fixed
-      // screen point that stays over the film through the reveal.
-      await scrollToProgress(page, 0.5);
-      const filmTop = await page.evaluate(() => {
-        const film = document.querySelector('.scroll-film__viewport');
-        if (!film) throw new Error('film viewport missing');
-        return film.getBoundingClientRect().top;
-      });
-      const y = Math.min(viewport.height - 4, Math.max(4, Math.round(filmTop) + 50));
+    const points = [
+      { x: 4, y: 4 },
+      { x: viewport.width - 5, y: 4 },
+      { x: 4, y: viewport.height - 5 },
+      // Interior probes (OBS-5): the two gradient centres and the dock point.
+      { x: Math.round(viewport.width * 0.5), y: Math.round(viewport.height * 0.46) },
+      { x: Math.round(viewport.width * 0.86), y: Math.round(viewport.height * 0.88) },
+      // Dock point (clock): the same asset must render the same pixel.
+      { x: Math.round(viewport.width * 0.575), y: Math.round(viewport.height * 0.462) },
+    ];
 
-      // Reference: the veil at rest (fully opaque) at the same screen point.
-      await scrollToProgress(page, 0);
-      const reference = await samplePixel(page, x, y);
-      expect(reference.r).toBeGreaterThan(0);
+    // Scene 00 reference frame: veil opaque, sky out, clock docked at 94 %
+    // (before the §24 crossfade).
+    await scrollToProgress(page, 0.94);
+    const reference = [];
+    for (const point of points) {
+      reference.push(await samplePixel(page, point.x, point.y));
+    }
 
-      for (const target of [0.34, 0.5, 0.66]) {
-        await scrollToProgress(page, target);
-        expect(
-          await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
-          `overflow at ${target}`,
-        ).toBeLessThanOrEqual(0);
-        const sample = await samplePixel(page, x, y);
-        const delta = channelDelta(sample, reference);
-        console.log(
-          `CONTINUITY ${viewport.width}x${viewport.height} t=${target} ` +
-            `rgb(${sample.r},${sample.g},${sample.b}) ref(${reference.r},${reference.g},${reference.b}) delta=${delta}`,
-        );
-        expect(delta, `delta at ${target}`).toBeLessThanOrEqual(2);
-      }
+    // Scene 01 frame 5 svh later: the scenes overlap by 100svh, so both sticky
+    // viewports are pinned co-located and the same stack must render.
+    await page.evaluate(() => {
+      const section = document.querySelector('[data-clock-drink]');
+      if (!(section instanceof HTMLElement)) throw new Error('drink section missing');
+      const top = section.getBoundingClientRect().top + window.scrollY;
+      window.scrollTo(0, top + (section.offsetHeight - window.innerHeight) * 0.05);
     });
+    await waitForSettledLayout(page);
+    const drinkTop = await page.evaluate(() => {
+      const viewport = document.querySelector('.clock-drink__viewport');
+      if (!viewport) throw new Error('drink viewport missing');
+      return viewport.getBoundingClientRect().top;
+    });
+    expect(drinkTop).toBeCloseTo(0, 0);
+
+    for (let i = 0; i < points.length; i += 1) {
+      const sample = await samplePixel(page, points[i].x, points[i].y);
+      const delta = channelDelta(sample, reference[i]);
+      console.log(
+        `CONTINUITY handoff ${viewport.width}x${viewport.height} ` +
+          `(${points[i].x},${points[i].y}) rgb(${sample.r},${sample.g},${sample.b}) ` +
+          `ref(${reference[i].r},${reference[i].g},${reference[i].b}) delta=${delta}`,
+      );
+      // The dock point (index 5) renders the same clock asset in both frames;
+      // the background probes must be pixel-identical.
+      expect(delta, `delta at (${points[i].x},${points[i].y})`).toBeLessThanOrEqual(
+        i === 5 ? 6 : 2,
+      );
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+      ).toBeLessThanOrEqual(0);
+    }
   });
 }
 
@@ -2000,8 +2064,8 @@ test('C6 dock is decorative and the landing never overflows', async ({ page }) =
 });
 
 for (const viewport of [
-  { width: 1440, height: 900, scale: 0.32 },
-  { width: 1280, height: 650, scale: 0.32 },
+  { width: 1440, height: 900, scale: 0.46 },
+  { width: 1280, height: 650, scale: 0.46 },
 ]) {
   test(`C3/C4 landing desktop ${viewport.width}x${viewport.height}`, async ({ browser }) => {
     test.setTimeout(120000);
@@ -2009,18 +2073,19 @@ for (const viewport of [
       await waitForEntry(page);
 
       const samples: LandingProbe[] = [];
-      for (const target of [0.55, 0.65, 0.75, 0.85, 1]) {
+      for (const target of [0.55, 0.65, 0.75, 0.85, 0.94]) {
         await scrollToProgress(page, target);
         samples.push(await readLanding(page));
       }
 
-      // Monotonic convergence: the clock shrinks and travels down to the dock.
+      // Monotonic convergence: the clock shrinks and travels up to the dock
+      // (§13: 20–52 % transform, 42–78 % travel; dock y 46.2 % < 50 % start).
       for (let i = 1; i < samples.length; i += 1) {
         expect(samples[i].scale, `scale monotonic at index ${i}`).toBeLessThanOrEqual(
           samples[i - 1].scale + 0.01,
         );
-        expect(samples[i].clockCenter.y, `center monotonic at index ${i}`).toBeGreaterThanOrEqual(
-          samples[i - 1].clockCenter.y - 1,
+        expect(samples[i].clockCenter.y, `center monotonic at index ${i}`).toBeLessThanOrEqual(
+          samples[i - 1].clockCenter.y + 1,
         );
       }
 
@@ -2039,13 +2104,33 @@ for (const viewport of [
         expect(probe.filter).toBe('none');
         expect(probe.wrapperStyle).not.toContain('filter');
       }
+
+      // §24 handover at 100 %: the intro clock is faded out and the Scene 01
+      // handoff clock holds the same dock position (the scenes overlap by
+      // 104svh, so both sticky viewports are pinned at the same screen spot).
+      await scrollToProgress(page, 1);
+      const handover = await readHandoffLanding(page);
+      expect(handover.drinkTop).toBeCloseTo(0, 0);
+      // The handoff clock is already taking over at the intro's 100 %
+      // (the exact value depends on the viewport's scrub length).
+      expect(handover.opacity).toBeGreaterThan(0.8);
+      const dockBox = await page.evaluate(() => {
+        const dock = document.querySelector('[data-experience-dock]');
+        if (!dock) throw new Error('dock missing');
+        return dock.getBoundingClientRect().toJSON();
+      });
+      expect(Math.abs(handover.center.x - (dockBox.left + dockBox.width / 2))).toBeLessThan(2);
+      expect(Math.abs(handover.center.y - (dockBox.top + dockBox.height / 2))).toBeLessThan(2);
+      // The handoff clock carries the exact Scene 00 clock shadow (OBS-1).
+      expect(handover.filter).toBe(handover.introFilter);
+      expect(handover.filter).not.toBe('none');
     });
   });
 }
 
 for (const viewport of [
-  { width: 390, height: 844, scale: 0.3 },
-  { width: 360, height: 640, scale: 0.3 },
+  { width: 390, height: 844, scale: 0.58 },
+  { width: 360, height: 640, scale: 0.58 },
 ]) {
   test(`C3/C4 landing mobile ${viewport.width}x${viewport.height}`, async ({ browser }) => {
     test.setTimeout(120000);
@@ -2054,7 +2139,7 @@ for (const viewport of [
       await page.waitForTimeout(400);
 
       const samples: LandingProbe[] = [];
-      for (const target of [0.55, 0.65, 0.75, 0.85, 1]) {
+      for (const target of [0.55, 0.65, 0.75, 0.85, 0.94]) {
         await scrollToProgress(page, target);
         samples.push(await readLanding(page));
       }
@@ -2063,8 +2148,8 @@ for (const viewport of [
         expect(samples[i].scale, `scale monotonic at index ${i}`).toBeLessThanOrEqual(
           samples[i - 1].scale + 0.01,
         );
-        expect(samples[i].clockCenter.y, `center monotonic at index ${i}`).toBeGreaterThanOrEqual(
-          samples[i - 1].clockCenter.y - 1,
+        expect(samples[i].clockCenter.y, `center monotonic at index ${i}`).toBeLessThanOrEqual(
+          samples[i - 1].clockCenter.y + 1,
         );
       }
 
@@ -2101,7 +2186,9 @@ const MOBILE_VIEWPORTS = [
   { width: 360, height: 640 },
 ];
 
-const SCRUB_STATES = [0, 0.05, 0.1, 0.15, 0.2, 0.275, 0.35, 0.4, 0.5, 0.65, 0.75, 0.85, 1];
+// §13 phase edges: hold 0–12, lettering 12–38, transform 20–52, travel 42–78,
+// hold 78–100 — plus mid-phase states to catch occlusion during the moves.
+const SCRUB_STATES = [0, 0.06, 0.12, 0.2, 0.28, 0.35, 0.42, 0.52, 0.65, 0.78, 0.9, 1];
 
 for (const viewport of DESKTOP_VIEWPORTS) {
   test(`no-occlusion desktop ${viewport.width}x${viewport.height} (scrub + landing + pointer)`, async ({

@@ -2,13 +2,17 @@
  * Home experience orchestrator (§37) — Fase 01.
  *
  * Owns exactly two scroll-scrubbed timelines (§61/D1):
- * - IntroTimeline: the §22 phases of the intro scene.
- * - FilmTimeline: video.currentTime driven by scroll (§28/§30).
+ * - IntroTimeline: the §22 phases of the intro scene (Scene 00).
+ * - DrinkTimeline: the §28/§29 clock→drink choreography (Scene 01).
  * The load entry is a plain gsap timeline WITHOUT ScrollTrigger (§19/§61).
  *
+ * The video logic is gone from this iteration (§37): `ScrollFilm.astro` is
+ * preserved in the repo but NOT mounted, so `initHomeExperience()` never
+ * queries `[data-scroll-film]`.
+ *
  * Why `disposed` is checked after every await: cleanup can run while async
- * imports or the video `loadedmetadata` event are still pending; each
- * continuation re-checks the flag so nothing ever attaches after teardown.
+ * imports or the §45 asset predecodes are still pending; each continuation
+ * re-checks the flag so nothing ever attaches after teardown.
  *
  * Resize/refresh: no manual listeners — Lenis `autoResize` (default true) and
  * ScrollTrigger's automatic refresh cover viewport changes (§37).
@@ -26,8 +30,8 @@ import { createPointerParallax, type PointerParallaxHandle } from './pointerPara
 
 export function initHomeExperience(): () => void {
   if (prefersReducedMotion()) {
-    // §43 — degraded but complete experience: visible hero, static film
-    // fallback, native scroll, no scrub, no currentTime writes.
+    // §43 — degraded but complete experience: visible hero, static drink
+    // final, native scroll, no scrub, no currentTime-like writes.
     return () => {};
   }
 
@@ -53,7 +57,7 @@ export function initHomeExperience(): () => void {
     // The experience must never take the page down with it (§57): an
     // unexpected init failure leaves the static fallback layout intact.
     // Revert the entry hidden states before tearing down — killing the
-    // timelines alone would leave title/clock/film frozen invisible.
+    // timelines alone would leave title/clock/drink frozen invisible.
     if (hiddenNodes.length > 0) {
       gsap.set(hiddenNodes, { clearProps: 'all' });
       hiddenNodes = [];
@@ -85,14 +89,20 @@ export function initHomeExperience(): () => void {
     // the already-visible static layout untouched.
     if (!title || !veil || !clock || titleLines.length === 0) return;
 
-    const filmSection = document.querySelector<HTMLElement>('[data-scroll-film]');
-    const video = document.querySelector<HTMLVideoElement>('[data-scroll-film-video]') ?? null;
+    // §17/§31 — Scene 01 nodes (ClockDrinkScene). Absent sections are a no-op:
+    // the intro still runs and the page keeps its static fallback.
+    const drinkSection = document.querySelector<HTMLElement>('[data-clock-drink]');
+    const handoffClock =
+      drinkSection?.querySelector<HTMLElement>('[data-drink-handoff-clock]') ?? null;
+    const handoffImg = handoffClock?.querySelector<HTMLElement>('img') ?? null;
+    const drinkGlow = drinkSection?.querySelector<HTMLElement>('[data-drink-glow]') ?? null;
+    const drinkBase = drinkSection?.querySelector<HTMLElement>('[data-drink-base]') ?? null;
+    const drinkGarnish = drinkSection?.querySelector<HTMLElement>('[data-drink-garnish]') ?? null;
+    const drinkFinal = drinkSection?.querySelector<HTMLElement>('[data-drink-final]') ?? null;
 
     // §19 — entry on load (JS confirmed, so gsap.set is allowed here, §44).
     // Slow, heavy, elegant; power3.out; no bounce/elastic/back. All initial
     // hidden states happen together, before any tween or ScrollTrigger (D3).
-    // v6 continuity: the film viewport is NOT hidden anymore (constant
-    // opacity 1 behind the veil) and has no panel scale tween.
     gsap.set(titleLines, { opacity: 0, y: 24 });
     gsap.set(clock, { opacity: 0, scale: 0.94, y: 30 });
     hiddenNodes = [...titleLines, clock];
@@ -132,11 +142,36 @@ export function initHomeExperience(): () => void {
     await getScrollTrigger();
     if (disposed) return;
 
-    // §13.2 v6 — landing dock measurement. Function-based values plus the
-    // timeline's `invalidateOnRefresh` recompute them on resize; the visible
-    // bbox centre sits `0.00687 × offsetWidth` above the element centre
-    // (clock-bbox.json fractions).
-    const LANDED_SCALE = window.matchMedia('(max-width: 800px)').matches ? 0.3 : 0.32;
+    // §14/§15/§16 (clock→drink plan) — handoff dock measurement. The dock is a
+    // 1×1 point that marks the VISIBLE centre of reloj.png, not the element
+    // centre. Function-based values plus `invalidateOnRefresh` recompute them
+    // on resize/orientation.
+    //
+    // Perceptual centre of `reloj.png` (designer calibration, Wave 2):
+    // visible bbox x 370→1300, y 7→910 on the 1672×941 canvas; the pivot is the
+    // measured bbox centre (835.5, 459.0) — NOT the canvas centre (836, 470.5)
+    // and NOT the spec's earlier 330–1407 / (868.5, 456.5). The dial centre
+    // (826.1, 475.1) is the garnish-match reference (±6 px), not the pivot.
+    const CLOCK_CANVAS_WIDTH = 1672;
+    const CLOCK_CANVAS_HEIGHT = 941;
+    /** Measured bbox centre (bbox x 370→1300, y 7→910) — the landing pivot. */
+    const CLOCK_VISIBLE_CENTER = { x: 835.5, y: 459.0 };
+    /** −0.000299 — the visible centre is a hair left of the canvas centre. */
+    const CLOCK_PERCEPTUAL_DX_FRACTION =
+      (CLOCK_VISIBLE_CENTER.x - CLOCK_CANVAS_WIDTH / 2) / CLOCK_CANVAS_WIDTH;
+    /** −0.012221 — the visible centre is above the canvas centre. */
+    const CLOCK_PERCEPTUAL_DY_FRACTION =
+      (CLOCK_VISIBLE_CENTER.y - CLOCK_CANVAS_HEIGHT / 2) / CLOCK_CANVAS_HEIGHT;
+
+    // §15 — landed scale (designer calibration, Wave 2): a single value per
+    // breakpoint, replacing v6's 0.32/0.30. Approved ranges: desktop
+    // 0.44–0.52, mobile 0.55–0.62; chosen so the clock's numeral ring ≈ the
+    // garnish's ring (ring-clock 0.371 × width).
+    const LANDED_SCALE_DESKTOP = 0.46;
+    const LANDED_SCALE_MOBILE = 0.58;
+    const landedScale = () =>
+      window.matchMedia('(max-width: 800px)').matches ? LANDED_SCALE_MOBILE : LANDED_SCALE_DESKTOP;
+
     const dockCenter = () => {
       const rect = dock?.getBoundingClientRect();
       return rect
@@ -146,7 +181,6 @@ export function initHomeExperience(): () => void {
 
     // §22 — IntroTimeline. Positions are expressed on a 0–100 scale so each
     // tween maps directly to a §22 phase (1 unit = 1% of the scrub).
-    let preloadUpgraded = false;
     // F2/D20 — the scrub release is a state transition detected on the
     // progress crossing (0.003), not an effect of the next input event.
     let releasedByScrub = false;
@@ -165,27 +199,21 @@ export function initHomeExperience(): () => void {
             pointerHandle?.setReleased(shouldRelease);
             tiltHandle?.setReleased(shouldRelease);
           }
-          // §35 — one-shot preload upgrade hint while the reveal approaches.
-          // Best-effort only: the fallback never depends on this (R4).
-          if (self.progress > 0.35 && !preloadUpgraded && video) {
-            preloadUpgraded = true;
-            video.preload = 'auto';
-          }
         },
       },
     });
 
-    // 0–15% — stable scene, minimal drift so the frame resists the scroll.
+    // 0–12 % — hold (§13): the frame resists the scroll with minimal drift.
     introTl
-      .to(clock, { y: () => -window.innerHeight * 0.005, duration: 15, immediateRender: false }, 0)
-      .to(title, { y: () => -window.innerHeight * 0.01, duration: 15, immediateRender: false }, 0);
+      .to(clock, { y: () => -window.innerHeight * 0.005, duration: 12, immediateRender: false }, 0)
+      .to(title, { y: () => -window.innerHeight * 0.01, duration: 12, immediateRender: false }, 0);
 
-    // 15–40% — the title parts laterally (v4, DESIGN_SPEC §2): both lines leave
-    // in opposite directions, no fade, no stagger, no vertical drift. ±120
+    // 12–38 % — the title parts laterally (§11/§13): both lines leave in
+    // opposite directions, no fade, no stagger, no vertical drift. ±120
     // clears the inline padding at every preset (§7.3.4).
     introTl
-      .to(titleLines[0], { xPercent: -120, duration: 25, immediateRender: false }, 15)
-      .to(titleLines[1], { xPercent: 120, duration: 25, immediateRender: false }, 15);
+      .to(titleLines[0], { xPercent: -120, duration: 26, immediateRender: false }, 12)
+      .to(titleLines[1], { xPercent: 120, duration: 26, immediateRender: false }, 12);
 
     // §7.3.3 — decorative sky drift inside the same timeline (no third
     // ScrollTrigger). Disjoint properties: dust/sparks get yPercent/scale here
@@ -205,56 +233,67 @@ export function initHomeExperience(): () => void {
       introTl.to(tiltLabel, { opacity: 0, duration: 8 }, 0);
     }
 
-    // 20–55% — the clock transforms: scale, lift, barely-there rotation.
+    // 20–52 % — the clock starts its journey (§13): scale ~0.70, rotation
+    // 2.5deg, minimal lift. No opacity, no filter — the clock never dissolves.
     introTl.to(
       clock,
-      { scale: 0.72, yPercent: -8, rotation: 3, duration: 35, immediateRender: false },
+      { scale: 0.7, yPercent: -8, rotation: 2.5, duration: 32, immediateRender: false },
       20,
     );
-
-    // 35–65% — the next room surfaces behind (§23). v6 continuity: the film
-    // viewport stays at opacity 1 with the exact veil stack behind the veil;
-    // only the veil fades (no panel tween, no double-fade dip).
-    introTl.to(veil, { opacity: 0, duration: 30 }, 35);
 
     // §52 — the hint retires early, at the start of the run.
     if (hint) {
       introTl.to(hint, { opacity: 0, duration: 8 }, 0);
     }
 
-    // 55–85% — the clock lands on the dock (v6, DESIGN_SPEC §13.2) instead of
-    // dissolving: function-based x/y to the dock centre, scale 0.32/0.30,
-    // rotation back to 0, no opacity and no filter — the clock stays visible
-    // and sharp at 100 %. Still one tween inside the introTl (C5).
+    // §24/§9 — handoff crossfade, Scene 00 side. The scenes overlap by 104svh
+    // (`.clock-drink { margin-top: -104svh }`), so the drink viewport is pinned
+    // at the exact same screen position, covering the viewport, 4svh before the
+    // intro stops being pinned. The last 3 units fade the intro clock out
+    // (opacity only, no blur) and the veil with it, so the identical stack of
+    // the scene below becomes the visible frame with no background step (§25).
+    // The handoff clock fades in over the first 3 % of the drink scrub: the two
+    // fades overlap, keep the object co-located and never show two clocks.
+    introTl.to(clock, { opacity: 0, duration: 3, immediateRender: false }, 97);
+    introTl.to(veil, { opacity: 0, duration: 3, immediateRender: false }, 97);
+
+    // 42–78 % — the clock travels to the handoff dock (§13/§14/§16): function-
+    // based x/y for the *visible* centre, landed scale, rotation back to 0, no
+    // opacity and no filter — the clock ends sharp and fully visible at 100 %.
+    // Still one tween inside the introTl; the phase windows are the §13 ones.
     introTl.to(
       clock,
       {
         x: () => {
           const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
-          return dockCenter().x - viewportWidth / 2;
+          return (
+            dockCenter().x -
+            viewportWidth / 2 -
+            CLOCK_PERCEPTUAL_DX_FRACTION * clock.offsetWidth * landedScale()
+          );
         },
         y: () => {
           const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-          return dockCenter().y - viewportHeight / 2 + 0.00687 * clock.offsetWidth * LANDED_SCALE;
+          return (
+            dockCenter().y -
+            viewportHeight / 2 -
+            CLOCK_PERCEPTUAL_DY_FRACTION * clock.offsetHeight * landedScale()
+          );
         },
         yPercent: 0,
-        scale: LANDED_SCALE,
+        scale: () => landedScale(),
         rotation: 0,
-        duration: 30, // 55 -> 85 %
+        duration: 36, // 42 -> 78 %
         immediateRender: false,
         ease: 'none',
       },
-      55,
+      42,
     );
 
-    // 85–100% — settle: nothing animates; the film frame fills the screen.
-    // Every position above is expressed on the documented 0–100 §22 scale
-    // ("1 unit = 1% of the scrub"): the last real tween ends at 85, so this
-    // property-less spacer keeps the 85–100% settle window and normalizes the
-    // timeline duration to 100. Without it the whole choreography (and the v4
-    // acceptance values: sky fully out at 65, title exit cleared at 40) would
-    // run ~17.6% later in scroll terms.
-    introTl.to({}, { duration: 15 }, 85);
+    // 78–100 % — hold (§13): nothing animates; the docked clock and the
+    // background stay put. The property-less spacer keeps the documented
+    // 78–100 window and normalizes the timeline duration to 100 (1 unit = 1 %).
+    introTl.to({}, { duration: 22 }, 78);
     disposers.push(() => {
       introTl.scrollTrigger?.kill();
       introTl.kill();
@@ -284,66 +323,183 @@ export function initHomeExperience(): () => void {
       }
     }
 
-    // §28/§30 — FilmTimeline. video.duration is NaN until loadedmetadata
-    // (R4), so the scrub controller is created only after that event —
-    // or immediately if metadata is already available.
-    let videoOk = true;
-    let filmTween: gsap.core.Tween | null = null;
-    const scrubState = { time: 0 };
+    // ── Scene 01 · DrinkTimeline (§28/§29/§37) ───────────────────────────────
+    // The natural state (no JS / reduced motion) is the baked final (§36); here
+    // the morph layers are prepared and the timeline scrubs the §29 phases.
+    if (drinkSection && handoffClock && handoffImg && drinkBase && drinkGarnish && drinkFinal) {
+      // §24 — the handoff clock starts hidden and fades in during the first
+      // units of the drink scrub (the Scene 00 clock fades out at the end of
+      // the intro scrub, co-located and co-timed).
+      gsap.set(handoffClock, { opacity: 0 });
+      gsap.set(drinkBase, { opacity: 0 });
+      gsap.set(drinkGarnish, { opacity: 0, scale: 0.96 });
+      gsap.set(drinkFinal, { opacity: 0, scale: 1.015 });
+      if (drinkGlow) gsap.set(drinkGlow, { opacity: 0 });
+      hiddenNodes.push(
+        handoffClock,
+        drinkBase,
+        drinkGarnish,
+        drinkFinal,
+        ...(drinkGlow ? [drinkGlow] : []),
+      );
 
-    const createFilmScrub = () => {
-      if (disposed || !filmSection || !video || !videoOk || filmTween) return;
-      const duration = video.duration;
-      if (!Number.isFinite(duration) || duration <= 0) return;
-      // §7.9 v6 — a real video with loaded metadata is the only trigger for
-      // the overlay (opacity 0 -> 1, 0.4 s ease); without material the
-      // fallback keeps the veil stack and the attribute never appears.
-      filmSection.dataset.videoReady = '';
-      scrubState.time = 0;
-      filmTween = gsap.to(scrubState, {
-        time: duration,
-        ease: 'none',
+      // §23 — dial reference points: reloj.png dial (826.1, 475.1) on the
+      // 1672×941 canvas vs the garnish dial (54.4 %/49.4 % of the 1254×1254
+      // master, placed by CSS at x 71.0 %/y 34.4 % of the product box). Their
+      // difference is the small §29 lock correction (±20 px clamp).
+      const CLOCK_DIAL_FX = 826.1 / 1672;
+      const CLOCK_DIAL_FY = 475.1 / 941;
+      const GARNISH_DIAL_FX = 0.544;
+      const GARNISH_DIAL_FY = 0.494;
+      // The correction is applied to the inner <img>, inside the wrapper's
+      // `scale(--handoff-scale)`: convert viewport px to the local px space.
+      const handoffScale = () =>
+        Number.parseFloat(getComputedStyle(handoffClock).getPropertyValue('--handoff-scale')) || 1;
+      const dialDelta = () => {
+        const clockBox = handoffClock.getBoundingClientRect();
+        const garnishBox = drinkGarnish.getBoundingClientRect();
+        return {
+          x: gsap.utils.clamp(
+            -20,
+            20,
+            garnishBox.left +
+              garnishBox.width * GARNISH_DIAL_FX -
+              (clockBox.left + clockBox.width * CLOCK_DIAL_FX),
+          ),
+          y: gsap.utils.clamp(
+            -20,
+            20,
+            garnishBox.top +
+              garnishBox.height * GARNISH_DIAL_FY -
+              (clockBox.top + clockBox.height * CLOCK_DIAL_FY),
+          ),
+        };
+      };
+
+      const drinkTl = gsap.timeline({
+        defaults: { ease: 'none' },
         scrollTrigger: {
-          trigger: filmSection,
+          trigger: drinkSection,
           start: 'top top',
           end: 'bottom bottom',
           scrub: true,
-          onUpdate: () => {
-            // Guarded write: never touch currentTime without ready frames
-            // (R1/R4); the tween keeps tracking scroll if the video errors.
-            if (!video || !videoOk || video.readyState < 1) return;
-            if (Math.abs(video.currentTime - scrubState.time) > 0.01) {
-              video.currentTime = scrubState.time;
-            }
-          },
+          invalidateOnRefresh: true,
         },
       });
+
+      // 0–4 % — HANDOFF CROSSFADE (§24): the handoff clock fades in at the dock
+      // while the Scene 00 clock fades out at the end of the intro scrub; both
+      // are co-located because the scenes overlap. 4 units keep the two fades
+      // overlapping on mobile too (its drink scrub is shorter). No trajectory,
+      // no blur — opacity only.
+      drinkTl.fromTo(
+        handoffClock,
+        { opacity: 0 },
+        { opacity: 1, duration: 4, ease: 'power1.inOut', immediateRender: false },
+        0,
+      );
+
+      // 4–10 % — MATCH HOLD: only the handoff clock while the user accepts the
+      // object continuity. 8–36 % — REVEAL PRODUCT: the base rises from 5svh
+      // behind the clock while the glow lights up.
+      drinkTl.fromTo(
+        drinkBase,
+        { opacity: 0, scale: 0.96, y: () => window.innerHeight * 0.05 },
+        {
+          opacity: 1,
+          scale: 1,
+          y: 0,
+          duration: 28,
+          ease: 'power1.inOut',
+          immediateRender: false,
+        },
+        8,
+      );
+      if (drinkGlow) {
+        drinkTl.fromTo(
+          drinkGlow,
+          { opacity: 0 },
+          { opacity: 0.35, duration: 28, ease: 'power1.inOut', immediateRender: false },
+          8,
+        );
+      }
+
+      // 24–48 % — LOCK TO GARNISH: finish the correction onto the garnish dial
+      // with a small movement only (the big trajectory happened in Scene 00).
+      drinkTl.to(
+        handoffImg,
+        {
+          x: () => dialDelta().x / handoffScale(),
+          y: () => dialDelta().y / handoffScale(),
+          rotation: 2,
+          duration: 24,
+          ease: 'power1.inOut',
+          immediateRender: false,
+        },
+        24,
+      );
+
+      // 42–58 % — CLOCK → GARNISH: the main crossfade, opacity only plus the
+      // §29 silhouette scales (.94 / .96 → 1). No blur.
+      drinkTl.to(
+        handoffClock,
+        { opacity: 0, duration: 16, ease: 'power1.inOut', immediateRender: false },
+        42,
+      );
+      drinkTl.to(
+        handoffImg,
+        { scale: 0.94, duration: 16, ease: 'power1.inOut', immediateRender: false },
+        42,
+      );
+      drinkTl.fromTo(
+        drinkGarnish,
+        { opacity: 0, scale: 0.96 },
+        { opacity: 1, scale: 1, duration: 16, ease: 'power1.inOut', immediateRender: false },
+        42,
+      );
+
+      // 58–72 % — COMPOSITE HOLD: base + garnish, nothing animates.
+
+      // 72–84 % — BAKE TO FINAL: short crossfade (base and final share the
+      // exact same box, §20).
+      drinkTl.to(
+        [drinkBase, drinkGarnish],
+        { opacity: 0, duration: 12, ease: 'power1.inOut', immediateRender: false },
+        72,
+      );
+      drinkTl.to(
+        drinkFinal,
+        { opacity: 1, duration: 12, ease: 'power1.inOut', immediateRender: false },
+        72,
+      );
+
+      // 84–100 % — FINAL HOLD: only the baked product, breathing very slightly.
+      drinkTl.to(
+        drinkFinal,
+        { scale: 1, duration: 16, ease: 'power1.inOut', immediateRender: false },
+        84,
+      );
+
       disposers.push(() => {
-        filmTween?.scrollTrigger?.kill();
-        filmTween?.kill();
-        filmTween = null;
+        drinkTl.scrollTrigger?.kill();
+        drinkTl.kill();
       });
-    };
 
-    const onVideoError = () => {
-      // §26/§57 — the material is simply not there yet: keep the NODO
-      // fallback, never write currentTime, no visual error. Dev-only note.
-      videoOk = false;
-      if (import.meta.env.DEV) {
-        console.info('[NODO] ScrollFilm: video material not available yet — fallback stays.');
-      }
-    };
-
-    if (video) {
-      if (video.readyState >= 1) {
-        createFilmScrub();
-      } else {
-        video.addEventListener('loadedmetadata', createFilmScrub);
-      }
-      video.addEventListener('error', onVideoError);
-      disposers.push(() => {
-        video.removeEventListener('loadedmetadata', createFilmScrub);
-        video.removeEventListener('error', onVideoError);
+      // §45 — predecode the cocktail assets with guards: the DrinkTimeline is
+      // already scrub-driven, so a decode never blocks the page; on failure
+      // the baked final stays as the scene.
+      const drinkImages = [drinkBase, drinkGarnish, drinkFinal] as HTMLImageElement[];
+      void Promise.allSettled(drinkImages.map((image) => image.decode())).then((results) => {
+        if (disposed) return;
+        if (results.some((result) => result.status === 'rejected')) {
+          drinkTl.scrollTrigger?.kill();
+          drinkTl.kill();
+          // §45/OBS-3 — clearProps also on the glow so its natural 0.35 is
+          // restored with the rest of the fallback state.
+          for (const node of [handoffClock, drinkBase, drinkGarnish, drinkFinal, drinkGlow]) {
+            if (node) gsap.set(node, { clearProps: 'all' });
+          }
+        }
       });
     }
   }

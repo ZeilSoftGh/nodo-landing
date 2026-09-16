@@ -110,8 +110,9 @@ const sparkClass = (spark: SkySpark): string =>
   }
 
   /* §12 — darkness dominates; a single soft green haze plus a whisper of gold.
-     This layer fades away during the film reveal so the film shows through
-     from behind (§22 35–65%). */
+     The layer no longer fades: with ScrollFilm unmounted (clock→drink §61) the
+     intro frame must keep this exact stack until the ClockDrinkScene viewport
+     takes over, so the section change has no background seam (§25). */
   .experience-intro__veil {
     position: absolute;
     inset: 0;
@@ -317,19 +318,17 @@ const sparkClass = (spark: SkySpark): string =>
     filter: drop-shadow(0 2rem 4rem rgb(0 0 0 / 42%)) drop-shadow(0 0 3rem rgb(201 167 67 / 8%));
   }
 
-  /* §13.2 v6 — landing dock: the anchor the clock travels to during 55–85 %
-     and the future frame of the drink (asset pending, spec-only). Invisible
-     in production; the dashed rectangle is review-only in the mock. */
+  /* §14 (clock→drink plan) — handoff dock: a 1×1 reference point that marks
+     the perceptual centre of the clock just before it becomes the garnish.
+     It is NOT the centre of the glass. Designer calibration (Wave 2):
+     desktop 57.5% / 46.2%, mobile 66.4% / 42.5% (±12 px), superseding the
+     spec's initial 61/39 and 58/38. */
   .experience-dock {
-    --dock-w: 106px;
-    --dock-h: 300px;
-
     position: absolute;
-    top: 74%;
-    left: 50%;
-    width: var(--dock-w);
-    height: var(--dock-h);
-    transform: translate(-50%, -50%);
+    left: 57.5%;
+    top: 46.2%;
+    width: 1px;
+    height: 1px;
     pointer-events: none;
   }
 
@@ -448,8 +447,8 @@ const sparkClass = (spark: SkySpark): string =>
     }
 
     .experience-dock {
-      --dock-w: 54px;
-      --dock-h: 150px;
+      left: 66.4%;
+      top: 42.5%;
     }
   }
 

@@ -1,21 +1,23 @@
 ---
-// Fase 01 · Home compositor (§10/§48).
+// Fase 01 · Home compositor (§10/§48) — Scene 00 + Scene 01 (clock → drink).
 //
 // Pure composition: layout only — all motion orchestration lives in
 // lib/motion/homeExperience.ts and is mounted by the script below. No
-// traditional header in this phase (§50). Prerendered (§48); the title
-// renders through SeoHead as "NODO — Cóctel Bar | NODO" (accepted tradeoff,
-// N3 — core untouched).
+// traditional header in this phase (§50). ScrollFilm.astro is preserved in the
+// repo but deliberately NOT mounted (clock→drink plan §61: the video is a
+// later, independent feature). Prerendered (§48); the title renders through
+// SeoHead as "NODO — Cóctel Bar | NODO" (accepted tradeoff, N3 — core
+// untouched).
 export const prerender = true;
 
 import BaseLayout from '@layouts/BaseLayout.astro';
 import ExperienceIntro from '@components/home/ExperienceIntro.astro';
-import ScrollFilm from '@components/home/ScrollFilm.astro';
+import ClockDrinkScene from '@components/home/ClockDrinkScene.astro';
 ---
 
 <BaseLayout title="NODO — Cóctel Bar" description="Bienvenido a la experiencia NODO.">
   <ExperienceIntro />
-  <ScrollFilm />
+  <ClockDrinkScene />
 </BaseLayout>
 
 <script>
